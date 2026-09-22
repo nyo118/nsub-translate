@@ -80,6 +80,17 @@ describe('SessionManager', () => {
     expect((await m.snapshot()).status).toBe('active');
   });
 
+  it('uses a stream id obtained by the popup and skips the worker fallback', async () => {
+    const world = makeWorld();
+    const startOffscreen = vi.fn(world.ports.startOffscreen);
+    world.ports.startOffscreen = startOffscreen;
+    const m = manager(world);
+    expect(await m.start({ tabId: 7, streamId: 'popup-stream' })).toEqual({ ok: true, sessionId: 'sid-1' });
+    expect(world.calls).not.toContain('getStreamId');
+    expect(startOffscreen).toHaveBeenCalledWith(expect.objectContaining({ streamId: 'popup-stream' }));
+    expect(world.stored.value).toMatchObject({ tabId: 7 });
+  });
+
   it('rejects a second start while a session is active (no duplicate sessions)', async () => {
     const world = makeWorld();
     const m = manager(world);

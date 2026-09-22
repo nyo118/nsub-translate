@@ -122,7 +122,7 @@ export class SessionManager {
     }
   }
 
-  start(): Promise<{ ok: true; sessionId: string } | { ok: false; error: string }> {
+  start(capture?: { tabId: number; streamId: string }): Promise<{ ok: true; sessionId: string } | { ok: false; error: string }> {
     return this.exclusive(async () => {
       const current = await this.getState();
       if (current.status !== 'idle') {
@@ -137,8 +137,7 @@ export class SessionManager {
 
       let tabId: number | undefined;
       try {
-        const tab = await this.ports.getActiveTab();
-        tabId = tab.tabId;
+        tabId = capture?.tabId ?? (await this.ports.getActiveTab()).tabId;
         const detection = await this.ports.detectPlayer(tabId);
         if (detection.platform === null) {
           throw new Error('The current tab is not a YouTube or Twitch page.');
@@ -148,7 +147,8 @@ export class SessionManager {
         }
         await this.setState({ status: 'starting', tabId, platform: detection.platform });
 
-        const streamId = await this.ports.getStreamId(tabId);
+        // Prefer the stream id the popup obtained in the user's click context.
+        const streamId = capture?.streamId ?? (await this.ports.getStreamId(tabId));
         await this.ports.ensureOffscreen();
         const result = await this.ports.startOffscreen({
           streamId,

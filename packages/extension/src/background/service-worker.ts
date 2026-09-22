@@ -30,7 +30,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     case 'popup.getStatus':
       return respond(manager.snapshot());
     case 'popup.start':
-      return respond(manager.start());
+      return respond(manager.start(message.capture));
     case 'popup.stop':
       return respond(manager.stop('user'));
     case 'content.hello': {

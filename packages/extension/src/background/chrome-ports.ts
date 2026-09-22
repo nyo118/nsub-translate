@@ -7,6 +7,7 @@ import type {
   ToOffscreen,
 } from '../shared/messages.js';
 import { detectPlatformFromUrl } from '../shared/platform.js';
+import { describeCaptureError } from '../shared/capture-error.js';
 
 /**
  * Real Chrome implementations of the SessionPorts. This file is the only
@@ -83,8 +84,12 @@ export const chromePorts: SessionPorts = {
     }
   },
   async getStreamId(tabId) {
-    // Must be called after the user invoked the extension on this tab (popup click counts).
-    return chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    // Fallback path (the popup normally obtains the stream id itself).
+    try {
+      return await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    } catch (err) {
+      throw new Error(describeCaptureError(err, tabId, 'service worker'));
+    }
   },
   ensureOffscreen,
   hasOffscreen,

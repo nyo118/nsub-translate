@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ContentDetectResponse, OkResponse, PopupToBackground, SessionSnapshot, ToContent } from '../shared/messages.js';
+import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground, SessionSnapshot, ToContent } from '../shared/messages.js';
+import { describeCaptureError } from '../shared/capture-error.js';
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 
 const POLL_MS = 250;
@@ -15,7 +16,7 @@ interface TabInfo {
 }
 
 async function inspectActiveTab(): Promise<TabInfo> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const platform = detectPlatformFromUrl(tab?.url);
   if (platform === null || tab?.id === undefined) return { platform: null, playerFound: false, contentLoaded: false };
   try {
@@ -57,14 +58,32 @@ export function App() {
     };
   }, [refresh]);
 
+  /**
+   * The popup is the context in which the user invoked the extension, so the
+   * tabCapture stream id is requested here and handed to the worker.
+   */
+  const obtainCapture = async (): Promise<PopupCapture> => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || tab.id === undefined) throw new Error('No active tab in this window.');
+    try {
+      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+      return { tabId: tab.id, streamId };
+    } catch (err) {
+      throw new Error(`${describeCaptureError(err, tab.id, 'popup')} [tab url: ${tab.url ?? 'unknown'}, window ${tab.windowId}]`);
+    }
+  };
+
   const run = async (type: 'popup.start' | 'popup.stop') => {
     setBusy(true);
     setError(null);
     try {
-      const result = await askBackground<OkResponse>({ target: 'background', type });
+      const result =
+        type === 'popup.start'
+          ? await askBackground<OkResponse>({ target: 'background', type, capture: await obtainCapture() })
+          : await askBackground<OkResponse>({ target: 'background', type });
       if (!result.ok) setError(result.error);
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
       void refresh();

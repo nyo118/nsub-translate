@@ -24,9 +24,19 @@ export interface SessionSnapshot {
 }
 
 // ---- Popup -> Background --------------------------------------------------
+/**
+ * The popup runs in the context where the user invoked the extension, so it
+ * obtains the tabCapture stream id itself and hands it to the worker. When
+ * absent, the worker tries to obtain one (fallback path).
+ */
+export interface PopupCapture {
+  tabId: number;
+  streamId: string;
+}
+
 export type PopupToBackground =
   | { target: 'background'; type: 'popup.getStatus' }
-  | { target: 'background'; type: 'popup.start' }
+  | { target: 'background'; type: 'popup.start'; capture?: PopupCapture }
   | { target: 'background'; type: 'popup.stop' };
 
 // ---- Content -> Background ------------------------------------------------
