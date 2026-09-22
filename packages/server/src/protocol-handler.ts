@@ -4,6 +4,7 @@ import {
   type ServerMessage,
   type SessionErrorCode,
 } from '@lst/protocol';
+import { randomUUID } from 'node:crypto';
 import { MockSession } from './session.js';
 
 export interface ConnectionLogger {
@@ -34,7 +35,7 @@ export class ConnectionHandler {
     this.send = options.send;
     this.tickMs = options.tickMs;
     this.log = options.log;
-    this.newSessionId = options.newSessionId ?? (() => crypto.randomUUID());
+    this.newSessionId = options.newSessionId ?? (() => randomUUID());
   }
 
   get activeSessionId(): string | null {
@@ -42,6 +43,15 @@ export class ConnectionHandler {
   }
 
   handleFrame(raw: unknown): void {
+    try {
+      this.handleFrameUnsafe(raw);
+    } catch (err) {
+      // A bug must never take the whole server down; report it to the client.
+      this.error('internal_error', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private handleFrameUnsafe(raw: unknown): void {
     const parsed = parseJsonObject(raw);
     if (!parsed.ok) {
       this.error('invalid_message', parsed.error);

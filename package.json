@@ -11,15 +11,16 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "eslint .",
+    "lint": "npm run check-node && eslint .",
     "build:protocol": "npm run build -w @lst/protocol",
-    "typecheck": "npm run build:protocol && npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "npm run build && playwright test",
-    "build": "npm run build -w @lst/protocol && npm run build -w @lst/server && npm run build -w @lst/extension",
-    "dev:server": "npm run build:protocol && npm run dev -w @lst/server",
-    "start:server": "npm run start -w @lst/server"
+    "typecheck": "npm run check-node && npm run build:protocol && npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
+    "test": "npm run check-node && vitest run",
+    "test:watch": "npm run check-node && vitest",
+    "test:e2e": "npm run check-node && npm run build && playwright test",
+    "build": "npm run check-node && npm run build -w @lst/protocol && npm run build -w @lst/server && npm run build -w @lst/extension",
+    "dev:server": "npm run check-node && npm run build:protocol && npm run dev -w @lst/server",
+    "start:server": "npm run check-node && npm run start -w @lst/server",
+    "check-node": "node scripts/check-node.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

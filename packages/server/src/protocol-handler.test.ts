@@ -77,4 +77,12 @@ describe('ConnectionHandler', () => {
     expect(sent).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('turns an unexpected exception into session.error internal_error instead of throwing', () => {
+    const sent: ServerMessage[] = [];
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), tickMs: 50, log, newSessionId: () => { throw new Error('boom'); } });
+    expect(() => handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: 'zh-CN' }))).not.toThrow();
+    expect(sent).toEqual([{ type: 'session.error', code: 'internal_error', message: 'boom' }]);
+    expect(handler.activeSessionId).toBeNull();
+  });
 });

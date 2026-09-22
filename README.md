@@ -48,7 +48,10 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 
 ## 启动本地后端
 
+> **每个新终端都要先 `nvm use`**。所有 root 脚本会先检查 Node 版本，版本不对会直接报错退出（而不是运行到一半崩溃）。
+
 ```bash
+nvm use
 npm run dev:server
 # 期望日志：Server listening at http://127.0.0.1:8787
 #          WebSocket endpoint: ws://127.0.0.1:8787/ws
