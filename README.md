@@ -19,7 +19,7 @@ TEST_PLAN.md         自动化与人工测试计划
 
 | 组件 | 要求 |
 |---|---|
-| Node.js | **22.12+**（Vite 8 / Vitest 5 的要求）。仓库根有 `.nvmrc`，用 `nvm use` 切换 |
+| Node.js | **22.12+**（Vite 8 / Vitest 5 的要求）。仓库根有 `.nvmrc`，用 `nvm use` 切换。若提示 `command not found: nvm`，先 `source ~/.nvm/nvm.sh`，或直接 `export PATH="$HOME/.nvm/versions/node/v22.16.0/bin:$PATH"` |
 | npm | 10+（随 Node 22 附带） |
 | Chrome | 116+（`chrome.runtime.getContexts` / Offscreen API）。已在 Chrome 153 上开发 |
 | 操作系统 | macOS 上开发；Windows / Linux 未验证 |
