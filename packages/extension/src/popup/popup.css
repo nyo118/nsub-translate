@@ -1,0 +1,18 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; }
+body { margin: 0; min-width: 300px; }
+.app { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+h1 { font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px; }
+.phase { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 8px; background: #1f8a70; color: #fff; }
+.row { display: flex; justify-content: space-between; gap: 8px; }
+.label { opacity: 0.7; }
+.value { font-variant-numeric: tabular-nums; text-align: right; }
+.status-idle { color: #888; } .status-active { color: #1f8a70; font-weight: 600; } .status-starting, .status-stopping { color: #c98a00; }
+.meter { height: 8px; border-radius: 4px; background: rgba(127,127,127,0.25); overflow: hidden; }
+.meter > div { height: 100%; background: #1f8a70; transition: width 120ms linear; }
+.error { color: #c0392b; white-space: pre-wrap; word-break: break-word; }
+.hint { opacity: 0.7; }
+.actions { display: flex; gap: 8px; }
+button { flex: 1; padding: 8px; font-size: 13px; border-radius: 6px; border: 1px solid rgba(127,127,127,0.4); cursor: pointer; background: transparent; color: inherit; }
+button.primary { background: #1f8a70; color: #fff; border-color: #1f8a70; }
+button:disabled { opacity: 0.5; cursor: default; }
+code { font-size: 11px; }

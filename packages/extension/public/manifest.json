@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Live Subtitle Translator (Phase 0)",
+  "version": "0.0.1",
+  "description": "Personal-use bilingual live subtitles for YouTube and Twitch. Phase 0: technical validation with a mock backend.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["tabCapture", "offscreen", "storage", "activeTab"],
+  "host_permissions": ["*://*.youtube.com/*", "*://*.twitch.tv/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Live Subtitle Translator",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.twitch.tv/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
