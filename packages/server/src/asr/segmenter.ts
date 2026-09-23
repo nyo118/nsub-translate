@@ -50,6 +50,13 @@ export interface SegmenterOptions {
   preRollMs?: number;
   /** Segments longer than this are force-finalised (long monologues). */
   maxSegmentMs?: number;
+  /**
+   * Once a segment is this long, finalise it early at the quietest point in
+   * the last `softSplitWindowMs` of audio (usually a gap between words), so
+   * dense speech without real pauses still yields sentence-sized segments.
+   */
+  softSegmentMs?: number;
+  softSplitWindowMs?: number;
   now?: () => number;
 }
 
@@ -78,7 +85,9 @@ export class Segmenter {
       partialIntervalMs: 600,
       minPartialMs: 700,
       preRollMs: 300,
-      maxSegmentMs: 12000,
+      maxSegmentMs: 8000,
+      softSegmentMs: 5000,
+      softSplitWindowMs: 1500,
       now: () => Date.now(),
       onMetrics: () => {},
       ...options,
@@ -144,12 +153,66 @@ export class Segmenter {
     if (this.inSpeech) {
       const durMs = (this.currentLen / this.o.sampleRate) * 1000;
       if (durMs >= this.o.maxSegmentMs) {
-        this.finalizeCurrent(this.concatCurrent(), this.currentStart);
-        this.beginSegment();
+        this.splitCurrentAt(this.currentLen);
         return;
+      }
+      if (durMs >= this.o.softSegmentMs) {
+        const cut = this.findQuietCut();
+        if (cut !== null) {
+          this.splitCurrentAt(cut);
+          return;
+        }
       }
       this.maybePartial(durMs);
     }
+  }
+
+  /**
+   * Finalise the current segment up to `cutSamples` and continue the same
+   * utterance as a new segment holding the remaining audio.
+   */
+  private splitCurrentAt(cutSamples: number): void {
+    const all = this.concatCurrent();
+    const head = all.subarray(0, cutSamples);
+    const tail = all.slice(cutSamples);
+    const startSample = this.currentStart;
+    this.finalizeCurrent(head, startSample);
+    this.beginSegment();
+    // The new segment starts exactly where the cut was, carrying the tail audio.
+    this.current = tail.length > 0 ? [tail] : [];
+    this.currentLen = tail.length;
+    this.currentStart = startSample + cutSamples;
+  }
+
+  /**
+   * Quietest 100 ms window inside the last `softSplitWindowMs` (excluding the
+   * final 200 ms, which is still being spoken). Returns the sample index to
+   * cut at, or null if no window is clearly quieter than the segment average.
+   */
+  private findQuietCut(): number | null {
+    const rate = this.o.sampleRate;
+    const all = this.concatCurrent();
+    const win = Math.round(rate * 0.1);
+    const searchEnd = all.length - Math.round(rate * 0.2);
+    const searchStart = Math.max(0, all.length - Math.round((this.o.softSplitWindowMs / 1000) * rate));
+    if (searchEnd - searchStart < win * 2) return null;
+    const rms = (from: number, to: number) => {
+      let sum = 0;
+      for (let i = from; i < to; i++) sum += (all[i] ?? 0) ** 2;
+      return Math.sqrt(sum / Math.max(1, to - from));
+    };
+    const overall = rms(0, all.length);
+    let best = -1;
+    let bestRms = Infinity;
+    for (let i = searchStart; i + win <= searchEnd; i += win / 2) {
+      const r = rms(i, i + win);
+      if (r < bestRms) {
+        bestRms = r;
+        best = i;
+      }
+    }
+    if (best < 0 || bestRms > overall * 0.35) return null;
+    return best + win / 2;
   }
 
   private beginSegment(): void {
@@ -184,7 +247,17 @@ export class Segmenter {
   private drainSegments(): void {
     for (let seg = this.o.vad.popSegment(); seg !== null; seg = this.o.vad.popSegment()) {
       if (!this.inSpeech) this.beginSegment();
-      this.finalizeCurrent(seg.samples, seg.startSample);
+      // After a soft/hard split the VAD's segment still begins at the
+      // utterance's original start; only the part after our last cut is new.
+      const skip = Math.max(0, this.currentStart - seg.startSample);
+      if (skip >= seg.samples.length) {
+        // Everything in this VAD segment was already finalised.
+        this.inSpeech = false;
+        this.current = [];
+        this.currentLen = 0;
+        continue;
+      }
+      this.finalizeCurrent(skip > 0 ? seg.samples.subarray(skip) : seg.samples, seg.startSample + skip);
     }
   }
 

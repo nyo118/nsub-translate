@@ -58,7 +58,12 @@ const lengthRecognizer: Recognizer = {
   decode: (samples) => ({ text: `len=${samples.length}`, language: 'en' }),
 };
 
-function run(ranges: Array<[number, number]>, totalSamples: number, options: Partial<ConstructorParameters<typeof Segmenter>[0]> = {}) {
+function run(
+  ranges: Array<[number, number]>,
+  totalSamples: number,
+  options: Partial<ConstructorParameters<typeof Segmenter>[0]> = {},
+  signal: (sampleIndex: number) => number = () => 0,
+) {
   const out: AsrTranscript[] = [];
   let clock = 0;
   const seg = new Segmenter({
@@ -67,12 +72,15 @@ function run(ranges: Array<[number, number]>, totalSamples: number, options: Par
     recognizer: lengthRecognizer,
     onTranscript: (t) => out.push(t),
     now: () => clock,
+    softSegmentMs: 60_000, // most tests: no soft split
     ...options,
   });
   // Feed 100 ms chunks; advance the clock in real time.
   const chunk = 1600;
   for (let i = 0; i < totalSamples; i += chunk) {
-    seg.push(new Float32Array(Math.min(chunk, totalSamples - i)));
+    const block = new Float32Array(Math.min(chunk, totalSamples - i));
+    for (let k = 0; k < block.length; k++) block[k] = signal(i + k);
+    seg.push(block);
     clock += 100;
   }
   return { out, seg, flush: () => seg.flush() };
@@ -156,6 +164,47 @@ describe('Segmenter', () => {
     expect(out.filter((t) => t.status === 'partial')).toHaveLength(0);
     expect(out.filter((t) => t.status === 'final')).toHaveLength(1);
     expect(seg.stats.skippedPartials).toBeGreaterThan(0);
+  });
+
+  it('soft-splits dense speech at a quiet gap once the segment is long enough', () => {
+    // Loud "speech" everywhere except a 150 ms dip at 5.6 s.
+    const dipStart = Math.round(RATE * 5.6);
+    const dipEnd = Math.round(RATE * 5.75);
+    const signal = (i: number) => (i >= dipStart && i < dipEnd ? 0.001 : 0.5 * Math.sin(i));
+    const { out } = run([[0, RATE * 9]], RATE * 9, { softSegmentMs: 5000, softSplitWindowMs: 1500, maxSegmentMs: 8000 }, signal);
+    const finals = out.filter((t) => t.status === 'final');
+    expect(finals.length).toBeGreaterThanOrEqual(1);
+    // The first final ends inside the dip, not at the 8 s hard cap.
+    expect(finals[0]!.endMs).toBeGreaterThanOrEqual(5600);
+    expect(finals[0]!.endMs).toBeLessThanOrEqual(5800);
+    // The following segment starts exactly where the previous one ended (no audio lost).
+    const next = out.find((t) => t.segmentId !== finals[0]!.segmentId)!;
+    expect(next.startMs).toBe(finals[0]!.endMs);
+  });
+
+  it('never re-finalises audio before a split when the VAD later closes the utterance', () => {
+    // 9 s of dense speech with a dip at 5.6 s, then the VAD closes the utterance at 9 s.
+    const dipStart = Math.round(RATE * 5.6);
+    const dipEnd = Math.round(RATE * 5.75);
+    const signal = (i: number) => (i >= dipStart && i < dipEnd ? 0.001 : 0.5 * Math.sin(i));
+    const { out } = run([[0, RATE * 9]], RATE * 10, { softSegmentMs: 5000, softSplitWindowMs: 1500, maxSegmentMs: 8000 }, signal);
+    const finals = out.filter((t) => t.status === 'final');
+    expect(finals).toHaveLength(2);
+    // Contiguous, non-overlapping coverage of the utterance.
+    expect(finals[1]!.startMs).toBe(finals[0]!.endMs);
+    expect(finals[1]!.endMs).toBeGreaterThan(finals[1]!.startMs);
+    expect(Math.abs(finals[1]!.endMs! - 9000)).toBeLessThan(64);
+    // The second final decoded only the tail, not the whole utterance.
+    const tailLen = Number(finals[1]!.text.slice(4));
+    expect(tailLen).toBeLessThan(RATE * 4);
+  });
+
+  it('does not soft-split when there is no clear gap; falls back to the hard cap', () => {
+    const signal = (i: number) => 0.5 * Math.sin(i * 0.3);
+    const { out } = run([[0, RATE * 9]], RATE * 9, { softSegmentMs: 5000, maxSegmentMs: 7000 }, signal);
+    const finals = out.filter((t) => t.status === 'final');
+    expect(finals[0]!.endMs).toBeGreaterThanOrEqual(7000);
+    expect(finals[0]!.endMs).toBeLessThan(7100);
   });
 
   it('drops empty recognizer output and reports metrics', () => {
