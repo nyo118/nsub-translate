@@ -37,7 +37,7 @@ export const TARGET_LANGUAGES: readonly LanguageOption[] = [
 ];
 
 export const SOURCE_LANGUAGES: readonly LanguageOption[] = [
-  { code: AUTO_DETECT, label: '自动检测 (Auto Detect)' },
+  { code: AUTO_DETECT, label: '自动检测 (auto)' },
   ...TARGET_LANGUAGES,
 ];
 
