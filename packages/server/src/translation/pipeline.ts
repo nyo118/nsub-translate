@@ -14,7 +14,11 @@ export interface TranslationPipelineOptions {
   partialIntervalMs?: number;
   /** Partials shorter than this are not translated. */
   partialMinChars?: number;
-  /** Finals waiting beyond this count lose their translation (source stays visible). */
+  /**
+   * Finals waiting beyond this count lose their translation (source stays
+   * visible). Live subtitles prefer freshness: default 1 = while one
+   * translation runs, only the newest final waits; older ones are skipped.
+   */
   maxBacklog?: number;
   /** Per-request timeout. */
   timeoutMs?: number;
@@ -66,7 +70,7 @@ export class TranslationPipeline {
       translatePartials: false,
       partialIntervalMs: 2000,
       partialMinChars: 12,
-      maxBacklog: 3,
+      maxBacklog: 1,
       timeoutMs: 15000,
       failureThreshold: 3,
       contextSize: 2,

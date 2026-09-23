@@ -59,13 +59,29 @@ export class SubtitleStore {
     return true;
   }
 
-  /** The most recent segments, oldest first. */
-  visible(): SubtitleLine[] {
-    return this.order
+  /**
+   * The most recent segments, oldest first. Translations can lag several
+   * seconds behind the speech; if none of the visible segments has one yet,
+   * the most recent translated final (from the last `lookback` segments) is
+   * kept on screen above them so the viewer always sees some translation.
+   */
+  visible(lookback = 5): SubtitleLine[] {
+    const recent = this.order
       .slice(-this.visibleCount)
       .map((id) => this.segments.get(id))
-      .filter((s): s is SubtitleSegment => s !== undefined)
-      .map((s) => ({ sourceText: s.sourceText, translatedText: s.translatedText, status: s.status }));
+      .filter((s): s is SubtitleSegment => s !== undefined);
+    const lines = recent.map((s) => this.toLine(s));
+    if (recent.some((s) => s.translatedText !== undefined)) return lines;
+    const older = this.order.slice(-lookback, -this.visibleCount).reverse();
+    for (const id of older) {
+      const s = this.segments.get(id);
+      if (s?.status === 'final' && s.translatedText !== undefined) return [this.toLine(s), ...lines];
+    }
+    return lines;
+  }
+
+  private toLine(s: SubtitleSegment): SubtitleLine {
+    return { sourceText: s.sourceText, translatedText: s.translatedText, status: s.status };
   }
 
   get size(): number {

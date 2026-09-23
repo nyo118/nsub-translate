@@ -63,7 +63,7 @@ describe('TranslationPipeline', () => {
   });
 
   it('translates one final at a time, in order, and passes previous finals as context', async () => {
-    const { adapter, out, pipeline } = make({ contextSize: 2 });
+    const { adapter, out, pipeline } = make({ contextSize: 2, maxBacklog: 3 });
     pipeline.onTranscript(t('a', 0, 'final', 'One.'));
     pipeline.onTranscript(t('b', 0, 'final', 'Two.'));
     pipeline.onTranscript(t('c', 0, 'final', 'Three.'));
@@ -79,6 +79,18 @@ describe('TranslationPipeline', () => {
     await flush();
     expect(out.filter((m) => m.translatedText).map((m) => m.segmentId)).toEqual(['a', 'b', 'c']);
     expect(pipeline.backlog).toBe(0);
+  });
+
+  it('by default keeps only the newest waiting final (freshness over completeness)', async () => {
+    const { adapter, out, pipeline } = make();
+    for (const id of ['a', 'b', 'c', 'd']) pipeline.onTranscript(t(id, 0, 'final', `${id}.`));
+    adapter.calls[0]!.resolve('A');
+    await flush();
+    expect(adapter.calls).toHaveLength(2);
+    expect(adapter.calls[1]!.req.text).toBe('d.');
+    adapter.calls[1]!.resolve('D');
+    await flush();
+    expect(out.filter((m) => m.translatedText).map((m) => m.segmentId)).toEqual(['a', 'd']);
   });
 
   it('drops the oldest finals beyond maxBacklog (their source text stays visible)', async () => {
@@ -139,7 +151,7 @@ describe('TranslationPipeline', () => {
   });
 
   it('times out slow translations, and after repeated failures gives up with one error', async () => {
-    const { adapter, errors, pipeline } = make({ timeoutMs: 1000, failureThreshold: 2 });
+    const { adapter, errors, pipeline } = make({ timeoutMs: 1000, failureThreshold: 2, maxBacklog: 3 });
     pipeline.onTranscript(t('a', 0, 'final', 'A.'));
     pipeline.onTranscript(t('b', 0, 'final', 'B.'));
     pipeline.onTranscript(t('c', 0, 'final', 'C.'));

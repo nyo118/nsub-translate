@@ -45,6 +45,21 @@ describe('SubtitleStore', () => {
     expect(store.visible().map((l) => l.sourceText)).toEqual(['b:0', 'c:0']);
   });
 
+  it('keeps the latest translated final on screen while newer segments are still untranslated', () => {
+    const store = new SubtitleStore({ visibleCount: 2 });
+    store.apply(t({ segmentId: 'a', revision: 0, status: 'final', sourceText: 'A', translatedText: '甲' }));
+    store.apply(t({ segmentId: 'b', revision: 0, status: 'final', sourceText: 'B' }));
+    store.apply(t({ segmentId: 'c', revision: 0, status: 'partial', sourceText: 'C' }));
+    expect(store.visible().map((l) => l.sourceText)).toEqual(['A', 'B', 'C']);
+    // Once a visible segment gets its translation, the pinned line goes away.
+    store.apply(t({ segmentId: 'b', revision: 1, status: 'final', sourceText: 'B', translatedText: '乙' }));
+    expect(store.visible().map((l) => l.sourceText)).toEqual(['B', 'C']);
+    // An untranslated older final is never pinned; lookback is bounded.
+    const s2 = new SubtitleStore({ visibleCount: 2 });
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) s2.apply(t({ segmentId: id, revision: 0, status: 'final', sourceText: id, ...(id === 'a' ? { translatedText: '甲' } : {}) }));
+    expect(s2.visible().map((l) => l.sourceText)).toEqual(['f', 'g']);
+  });
+
   it('evicts the oldest segments beyond maxSegments and clear() empties everything', () => {
     const store = new SubtitleStore({ maxSegments: 3 });
     for (const id of ['a', 'b', 'c', 'd']) store.apply(t({ segmentId: id, revision: 0 }));
