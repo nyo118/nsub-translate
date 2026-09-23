@@ -17,6 +17,9 @@ export interface SessionSnapshot {
   platform?: Platform;
   backendUrl: string;
   startedAt?: number;
+  /** Languages the active session was started with (settings changes apply on next start). */
+  sourceLanguage?: string;
+  targetLanguage?: string;
   lastError?: string;
   /** 0..1 RMS audio level from the offscreen analyser; undefined when not capturing. */
   audioLevel?: number;

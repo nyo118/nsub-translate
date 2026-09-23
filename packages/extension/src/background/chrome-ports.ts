@@ -8,6 +8,7 @@ import type {
 } from '../shared/messages.js';
 import { detectPlatformFromUrl } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
+import { SettingsStore } from '../shared/settings-store.js';
 
 /**
  * Real Chrome implementations of the SessionPorts. This file is the only
@@ -53,7 +54,13 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: unknown):
   else console.info(line, data ?? '');
 }
 
+const settingsStore = new SettingsStore();
+
 export const chromePorts: SessionPorts = {
+  async loadLanguages() {
+    const s = await settingsStore.load();
+    return { sourceLanguage: s.sourceLanguage, targetLanguage: s.targetLanguage };
+  },
   async loadState() {
     const result = await chrome.storage.session.get(STORAGE_KEY);
     return result[STORAGE_KEY] as PersistedSession | undefined;

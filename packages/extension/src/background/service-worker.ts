@@ -1,6 +1,6 @@
 import { SessionManager } from './session-manager.js';
 import { chromePorts } from './chrome-ports.js';
-import { BACKEND_WS_URL, PHASE0_LANGUAGES } from '../shared/config.js';
+import { BACKEND_WS_URL } from '../shared/config.js';
 import { isTargeted, type ContentHelloResponse, type ToBackground } from '../shared/messages.js';
 
 /**
@@ -9,12 +9,7 @@ import { isTargeted, type ContentHelloResponse, type ToBackground } from '../sha
  * document and the content script.
  */
 
-const manager = new SessionManager({
-  ports: chromePorts,
-  backendUrl: BACKEND_WS_URL,
-  sourceLanguage: PHASE0_LANGUAGES.sourceLanguage,
-  targetLanguage: PHASE0_LANGUAGES.targetLanguage,
-});
+const manager = new SessionManager({ ports: chromePorts, backendUrl: BACKEND_WS_URL });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   if (!isTargeted<ToBackground>(message, 'background')) return false;

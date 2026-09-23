@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground, SessionSnapshot, ToContent } from '../shared/messages.js';
-import { describeCaptureError } from '../shared/capture-error.js';
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
+import { describeCaptureError } from '../shared/capture-error.js';
+import { SettingsStore } from '../shared/settings-store.js';
+import { DEFAULT_SETTINGS, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle } from '../shared/settings.js';
 
 const POLL_MS = 250;
+const settingsStore = new SettingsStore();
 
 async function askBackground<R>(message: PopupToBackground): Promise<R> {
   return (await chrome.runtime.sendMessage(message)) as R;
@@ -28,9 +31,42 @@ async function inspectActiveTab(): Promise<TabInfo> {
   }
 }
 
+/** The popup is where the user invoked the extension, so the tabCapture stream id is requested here. */
+async function obtainCapture(): Promise<PopupCapture> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || tab.id === undefined) throw new Error('No active tab in this window.');
+  try {
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    return { tabId: tab.id, streamId };
+  } catch (err) {
+    throw new Error(`${describeCaptureError(err, tab.id, 'popup')} [tab url: ${tab.url ?? 'unknown'}, window ${tab.windowId}]`);
+  }
+}
+
+type StatusKind = 'ready' | 'translating' | 'busy' | 'error';
+
+function statusOf(snapshot: SessionSnapshot | null, error: string | null): { kind: StatusKind; label: string } {
+  const status = snapshot?.status ?? 'idle';
+  if (status === 'active') return { kind: 'translating', label: 'Translating' };
+  if (status === 'starting') return { kind: 'busy', label: 'Starting' };
+  if (status === 'stopping') return { kind: 'busy', label: 'Stopping' };
+  if (error || snapshot?.lastError) return { kind: 'error', label: 'Error' };
+  return { kind: 'ready', label: 'Ready' };
+}
+
+function tabHint(tab: TabInfo | null): string {
+  if (tab === null) return '正在检测当前标签页…';
+  if (tab.platform === null) return '打开 YouTube · Twitch 的影片页后按开始字幕。';
+  if (!tab.contentLoaded) return '页面需要刷新一次，扩展才能在这个标签页工作。';
+  if (!tab.playerFound) return `已在 ${tab.platform} 页面，但没有找到播放器，请先打开一个影片。`;
+  return tab.platform === 'twitch' ? 'Twitch 播放器已检测到（音频捕获将在后续阶段验证）。' : 'YouTube 播放器已就绪，可以开始字幕。';
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [tab, setTab] = useState<TabInfo | null>(null);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [styleOpen, setStyleOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,35 +79,31 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // Poll the worker while the popup is open. The first tick is deferred so
-    // the effect body itself never sets state synchronously.
     let ticks = 0;
     const tick = () => {
       void refresh();
       if (ticks++ % 4 === 0) void inspectActiveTab().then(setTab);
     };
-    const initial = setTimeout(tick, 0);
+    const initial = setTimeout(() => {
+      tick();
+      void settingsStore.load().then(setSettings);
+    }, 0);
     const timer = setInterval(tick, POLL_MS);
+    const unsubscribe = settingsStore.subscribe(setSettings);
     return () => {
       clearTimeout(initial);
       clearInterval(timer);
+      unsubscribe();
     };
   }, [refresh]);
 
-  /**
-   * The popup is the context in which the user invoked the extension, so the
-   * tabCapture stream id is requested here and handed to the worker.
-   */
-  const obtainCapture = async (): Promise<PopupCapture> => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || tab.id === undefined) throw new Error('No active tab in this window.');
-    try {
-      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-      return { tabId: tab.id, streamId };
-    } catch (err) {
-      throw new Error(`${describeCaptureError(err, tab.id, 'popup')} [tab url: ${tab.url ?? 'unknown'}, window ${tab.windowId}]`);
-    }
+  // Optimistic: reflect the change in the UI at once, then persist; the
+  // storage.onChanged subscription reconciles with what was actually stored.
+  const updateSettings = (patch: Parameters<SettingsStore['update']>[0]) => {
+    setSettings((current) => normalizeSettings({ ...current, ...patch, style: { ...current.style, ...(patch.style ?? {}) } }));
+    void settingsStore.update(patch).then(setSettings);
   };
+  const updateStyle = (patch: Partial<SubtitleStyle>) => updateSettings({ style: patch });
 
   const run = async (type: 'popup.start' | 'popup.stop') => {
     setBusy(true);
@@ -91,63 +123,116 @@ export function App() {
     }
   };
 
-  const status = snapshot?.status ?? 'idle';
-  const canStart = status === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true;
-  const canStop = (status === 'active' || status === 'starting') && !busy;
-  const shownError = error ?? (status === 'idle' ? snapshot?.lastError : undefined);
+  const sessionStatus = snapshot?.status ?? 'idle';
+  const isActive = sessionStatus === 'active';
+  const status = statusOf(snapshot, error);
+  const canStart = sessionStatus === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true;
+  const canStop = (isActive || sessionStatus === 'starting') && !busy;
+  const shownError = error ?? (sessionStatus === 'idle' ? snapshot?.lastError : undefined);
+  const languagesPending =
+    isActive && snapshot !== null && (snapshot.sourceLanguage !== settings.sourceLanguage || snapshot.targetLanguage !== settings.targetLanguage);
 
   return (
     <div className="app">
-      <h1>
-        Live Subtitle Translator <span className="phase">Phase 0</span>
-      </h1>
-      <div className="row">
-        <span className="label">Session</span>
-        <span className={`value status-${status}`}>{status}</span>
-      </div>
-      <div className="row">
-        <span className="label">Current tab</span>
-        <span className="value">
-          {tab === null ? '…' : tab.platform === null ? 'not YouTube / Twitch' : `${tab.platform}${tab.playerFound ? ' · player found' : tab.contentLoaded ? ' · no player' : ' · reload page'}`}
-        </span>
-      </div>
-      {snapshot?.sessionId && (
-        <div className="row">
-          <span className="label">Session id</span>
-          <span className="value">
-            <code>{snapshot.sessionId.slice(0, 8)}</code>
-          </span>
+      <header className="header">
+        <img className="logo" src="icons/icon48.png" alt="" />
+        <div className="title">
+          <h1>N Sub</h1>
+          <p>即时双语字幕</p>
         </div>
-      )}
-      {status === 'active' && (
-        <>
-          <div className="row">
-            <span className="label">Subtitles received</span>
-            <span className="value">{snapshot?.transcriptCount ?? 0}</span>
+        <span className={`status ${status.kind}`} aria-live="polite">
+          <span className="dot" /> {status.label}
+        </span>
+      </header>
+
+      <section className="card">
+        <div className="languages">
+          <div className="field">
+            <label htmlFor="source">来源</label>
+            <select id="source" value={settings.sourceLanguage} onChange={(e) => updateSettings({ sourceLanguage: e.target.value })}>
+              {SOURCE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="row">
-            <span className="label">Tab audio level</span>
-            <span className="value">{snapshot?.audioLevel === undefined ? '—' : snapshot.audioLevel.toFixed(3)}</span>
+          <div className="arrow">→</div>
+          <div className="field">
+            <label htmlFor="target">翻译成</label>
+            <select id="target" value={settings.targetLanguage} onChange={(e) => updateSettings({ targetLanguage: e.target.value })}>
+              {TARGET_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="meter" aria-label="audio level">
-            <div style={{ width: `${Math.min(100, Math.round((snapshot?.audioLevel ?? 0) * 300))}%` }} />
+        </div>
+        {languagesPending && snapshot && (
+          <div className="pending">
+            当前会话仍使用 {languageLabel(snapshot.sourceLanguage ?? '')} → {languageLabel(snapshot.targetLanguage ?? '')}，新语言将在下次开始时生效。
           </div>
-        </>
-      )}
-      {shownError && <div className="error">{shownError}</div>}
-      <div className="actions">
-        <button className="primary" disabled={!canStart} onClick={() => void run('popup.start')}>
-          Start Translation
+        )}
+        <div className="actions">
+          {isActive ? (
+            <button className="btn primary running" disabled>
+              ● 正在翻译
+            </button>
+          ) : (
+            <button className="btn primary" disabled={!canStart} onClick={() => void run('popup.start')}>
+              ▶ 开始字幕
+            </button>
+          )}
+          {isActive && (
+            <div className="level" aria-label="audio level">
+              <div style={{ width: `${Math.min(100, Math.round((snapshot?.audioLevel ?? 0) * 300))}%` }} />
+            </div>
+          )}
+          <button className="btn secondary" disabled={!canStop} onClick={() => void run('popup.stop')}>
+            停止
+          </button>
+        </div>
+      </section>
+
+      {shownError ? <div className="card error-card">{shownError}</div> : <div className="card hint">{tabHint(tab)}</div>}
+
+      <section className="card">
+        <button className={`section-toggle ${styleOpen ? 'open' : ''}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen}>
+          <span>字幕样式</span>
+          <span className="chev">›</span>
         </button>
-        <button disabled={!canStop} onClick={() => void run('popup.stop')}>
-          Stop
-        </button>
-      </div>
-      <div className="hint">
-        Backend: <code>{snapshot?.backendUrl ?? '…'}</code>
-        <br />
-        Mock subtitles only (en → zh-CN). Audio is captured for playback and level metering, never sent or stored.
-      </div>
+        {styleOpen && (
+          <div className="style-grid">
+            <label className="slider">
+              <span>字体大小</span>
+              <input type="range" min={STYLE_LIMITS.fontSize.min} max={STYLE_LIMITS.fontSize.max} step={STYLE_LIMITS.fontSize.step} value={settings.style.fontSize} onChange={(e) => updateStyle({ fontSize: Number(e.target.value) })} />
+              <span className="val">{settings.style.fontSize}px</span>
+            </label>
+            <label className="slider">
+              <span>字幕位置</span>
+              <input type="range" min={STYLE_LIMITS.position.min} max={STYLE_LIMITS.position.max} step={STYLE_LIMITS.position.step} value={settings.style.position} onChange={(e) => updateStyle({ position: Number(e.target.value) })} />
+              <span className="val">{settings.style.position}%</span>
+            </label>
+            <label className="slider">
+              <span>背景透明度</span>
+              <input type="range" min={STYLE_LIMITS.backgroundOpacity.min} max={STYLE_LIMITS.backgroundOpacity.max} step={STYLE_LIMITS.backgroundOpacity.step} value={settings.style.backgroundOpacity} onChange={(e) => updateStyle({ backgroundOpacity: Number(e.target.value) })} />
+              <span className="val">{Math.round(settings.style.backgroundOpacity * 100)}%</span>
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={settings.style.showSource} onChange={(e) => updateStyle({ showSource: e.target.checked })} /> 显示原文
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={settings.style.showTranslated} onChange={(e) => updateStyle({ showTranslated: e.target.checked })} /> 显示翻译
+            </label>
+            <button className="btn reset" onClick={() => void settingsStore.reset().then(setSettings)}>
+              恢复默认
+            </button>
+          </div>
+        )}
+      </section>
+
+      <div className="footer">本地后端 · 目前为模拟字幕</div>
     </div>
   );
 }

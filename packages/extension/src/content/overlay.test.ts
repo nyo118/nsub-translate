@@ -59,3 +59,25 @@ describe('SubtitleOverlay', () => {
     expect(container.children).toHaveLength(2);
   });
 });
+
+describe('SubtitleOverlay styling', () => {
+  it('applies style as CSS variables and honours show/hide flags immediately', () => {
+    document.body.innerHTML = `<div id="movie_player"></div>`;
+    const overlay = new SubtitleOverlay(document);
+    overlay.mount(document.getElementById('movie_player')!);
+    overlay.render([{ sourceText: 'Hi', translatedText: '嗨', status: 'final' }]);
+    overlay.setStyle({ fontSize: 30, position: 25, backgroundOpacity: 0.4, showSource: false, showTranslated: true });
+    const host = document.getElementById(OVERLAY_HOST_ID)!;
+    const root = host.shadowRoot!.querySelector<HTMLElement>('.lst-root')!;
+    expect(root.style.getPropertyValue('--lst-font-size')).toBe('30px');
+    expect(root.style.getPropertyValue('--lst-bottom')).toBe('25%');
+    expect(root.style.getPropertyValue('--lst-bg-alpha')).toBe('0.4');
+    expect(host.shadowRoot!.querySelector('.lst-source')).toBeNull();
+    expect(host.shadowRoot!.querySelector('.lst-translated')!.textContent).toBe('嗨');
+    overlay.setStyle({ fontSize: 30, position: 25, backgroundOpacity: 0.4, showSource: true, showTranslated: false });
+    expect(host.shadowRoot!.querySelector('.lst-source')!.textContent).toBe('Hi');
+    expect(host.shadowRoot!.querySelector('.lst-translated')).toBeNull();
+    overlay.setStyle({ fontSize: 30, position: 25, backgroundOpacity: 0.4, showSource: false, showTranslated: false });
+    expect(host.shadowRoot!.querySelectorAll('.lst-line')).toHaveLength(0);
+  });
+});

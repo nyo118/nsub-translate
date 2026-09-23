@@ -1,11 +1,12 @@
 import { OVERLAY_HOST_ID } from '../shared/config.js';
+import { DEFAULT_STYLE, type SubtitleStyle } from '../shared/settings.js';
 import type { SubtitleLine } from './subtitle-state.js';
 
 const STYLES = `
   :host { all: initial; }
   .lst-root {
     position: absolute;
-    left: 0; right: 0; bottom: 10%;
+    left: 0; right: 0; bottom: var(--lst-bottom, 10%);
     display: flex; flex-direction: column; align-items: center; gap: 4px;
     pointer-events: none;
     z-index: 2147483000;
@@ -16,7 +17,7 @@ const STYLES = `
   }
   .lst-line {
     max-width: 100%;
-    background: rgba(0, 0, 0, 0.72);
+    background: rgba(0, 0, 0, var(--lst-bg-alpha, 0.72));
     color: #fff;
     border-radius: 6px;
     padding: 6px 12px;
@@ -24,8 +25,8 @@ const STYLES = `
     text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     word-break: break-word;
   }
-  .lst-source { font-size: 20px; }
-  .lst-translated { font-size: 22px; font-weight: 600; margin-top: 2px; }
+  .lst-source { font-size: calc(var(--lst-font-size, 22px) * 0.9); }
+  .lst-translated { font-size: var(--lst-font-size, 22px); font-weight: 600; margin-top: 2px; }
   .lst-partial .lst-source { opacity: 0.85; font-style: italic; }
   .lst-partial .lst-translated { opacity: 0.7; }
   .lst-badge { font-size: 11px; color: #9be7d0; letter-spacing: 0.04em; }
@@ -40,6 +41,8 @@ export class SubtitleOverlay {
   private host: HTMLElement | null = null;
   private root: HTMLElement | null = null;
   private readonly doc: Document;
+  private style: SubtitleStyle = { ...DEFAULT_STYLE };
+  private lastLines: SubtitleLine[] = [];
 
   constructor(doc: Document) {
     this.doc = doc;
@@ -68,22 +71,43 @@ export class SubtitleOverlay {
     container.appendChild(host);
     this.host = host;
     this.root = root;
+    this.applyStyle();
+  }
+
+  /** Apply user style immediately; re-renders the current lines. */
+  setStyle(style: SubtitleStyle): void {
+    this.style = { ...style };
+    this.applyStyle();
+    this.render(this.lastLines);
+  }
+
+  private applyStyle(): void {
+    if (this.root === null) return;
+    this.root.style.setProperty('--lst-font-size', `${this.style.fontSize}px`);
+    this.root.style.setProperty('--lst-bottom', `${this.style.position}%`);
+    this.root.style.setProperty('--lst-bg-alpha', String(this.style.backgroundOpacity));
   }
 
   render(lines: SubtitleLine[]): void {
+    this.lastLines = lines;
     if (this.root === null) return;
     this.root.replaceChildren();
     for (const line of lines) {
+      const showSource = this.style.showSource;
+      const showTranslated = this.style.showTranslated && line.translatedText !== undefined;
+      if (!showSource && !showTranslated) continue;
       const el = this.doc.createElement('div');
       el.className = `lst-line ${line.status === 'partial' ? 'lst-partial' : 'lst-final'}`;
-      const source = this.doc.createElement('div');
-      source.className = 'lst-source';
-      source.textContent = line.sourceText;
-      el.appendChild(source);
-      if (line.translatedText !== undefined) {
+      if (showSource) {
+        const source = this.doc.createElement('div');
+        source.className = 'lst-source';
+        source.textContent = line.sourceText;
+        el.appendChild(source);
+      }
+      if (showTranslated) {
         const translated = this.doc.createElement('div');
         translated.className = 'lst-translated';
-        translated.textContent = line.translatedText;
+        translated.textContent = line.translatedText ?? '';
         el.appendChild(translated);
       }
       this.root.appendChild(el);
@@ -105,5 +129,6 @@ export class SubtitleOverlay {
     this.host?.remove();
     this.host = null;
     this.root = null;
+    this.lastLines = [];
   }
 }

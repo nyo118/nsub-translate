@@ -13,6 +13,8 @@ export interface PersistedSession {
   tabId?: number;
   platform?: Platform;
   startedAt?: number;
+  sourceLanguage?: string;
+  targetLanguage?: string;
   lastError?: string;
 }
 
@@ -23,6 +25,8 @@ export interface PersistedSession {
  */
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
+  /** Current user settings; read at start time so later changes never touch a running session. */
+  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -41,8 +45,6 @@ export interface SessionPorts {
 export interface SessionManagerOptions {
   ports: SessionPorts;
   backendUrl: string;
-  sourceLanguage: string;
-  targetLanguage: string;
 }
 
 const IDLE: PersistedSession = { status: 'idle' };
@@ -58,8 +60,6 @@ const IDLE: PersistedSession = { status: 'idle' };
 export class SessionManager {
   private readonly ports: SessionPorts;
   private readonly backendUrl: string;
-  private readonly sourceLanguage: string;
-  private readonly targetLanguage: string;
   private state: PersistedSession | null = null;
   private inflight: Promise<unknown> | null = null;
   private audioLevel: number | undefined;
@@ -68,8 +68,6 @@ export class SessionManager {
   constructor(options: SessionManagerOptions) {
     this.ports = options.ports;
     this.backendUrl = options.backendUrl;
-    this.sourceLanguage = options.sourceLanguage;
-    this.targetLanguage = options.targetLanguage;
   }
 
   private async getState(): Promise<PersistedSession> {
@@ -99,6 +97,8 @@ export class SessionManager {
     if (state.tabId !== undefined) snap.tabId = state.tabId;
     if (state.platform !== undefined) snap.platform = state.platform;
     if (state.startedAt !== undefined) snap.startedAt = state.startedAt;
+    if (state.sourceLanguage !== undefined) snap.sourceLanguage = state.sourceLanguage;
+    if (state.targetLanguage !== undefined) snap.targetLanguage = state.targetLanguage;
     if (state.lastError !== undefined) snap.lastError = state.lastError;
     if (state.status === 'active' && this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
     return snap;
@@ -145,7 +145,8 @@ export class SessionManager {
         if (!detection.playerFound) {
           throw new Error(`No ${detection.platform} video player found on this page. Open a video first.`);
         }
-        await this.setState({ status: 'starting', tabId, platform: detection.platform });
+        const languages = await this.ports.loadLanguages();
+        await this.setState({ status: 'starting', tabId, platform: detection.platform, ...languages });
 
         // Prefer the stream id the popup obtained in the user's click context.
         const streamId = capture?.streamId ?? (await this.ports.getStreamId(tabId));
@@ -153,8 +154,7 @@ export class SessionManager {
         const result = await this.ports.startOffscreen({
           streamId,
           backendUrl: this.backendUrl,
-          sourceLanguage: this.sourceLanguage,
-          targetLanguage: this.targetLanguage,
+          ...languages,
         });
         if (!result.ok) throw new Error(result.error);
 
@@ -166,6 +166,7 @@ export class SessionManager {
           tabId,
           platform: detection.platform,
           startedAt: Date.now(),
+          ...languages,
         });
         await this.ports.notifyContent(tabId, { type: 'content.sessionStarted', sessionId: result.sessionId }).catch((err: unknown) => {
           this.ports.log('warn', 'content script did not acknowledge sessionStarted', String(err));

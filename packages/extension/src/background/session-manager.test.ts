@@ -17,6 +17,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const calls: string[] = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
+    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW' }),
     saveState: async (s) => {
       stored.value = s;
     },
@@ -56,7 +57,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
 }
 
 function manager(world: FakeWorld) {
-  return new SessionManager({ ports: world.ports, backendUrl: 'ws://127.0.0.1:8787/ws', sourceLanguage: 'en', targetLanguage: 'zh-CN' });
+  return new SessionManager({ ports: world.ports, backendUrl: 'ws://127.0.0.1:8787/ws' });
 }
 
 const transcript: TranscriptMessage = {
@@ -78,6 +79,21 @@ describe('SessionManager', () => {
     expect(world.stored.value).toMatchObject({ status: 'active', sessionId: 'sid-1', tabId: 7, platform: 'youtube' });
     expect(world.contentMessages).toEqual([{ tabId: 7, type: 'content.sessionStarted' }]);
     expect((await m.snapshot()).status).toBe('active');
+  });
+
+  it('reads languages from settings at start and exposes them in the snapshot', async () => {
+    const world = makeWorld();
+    const startOffscreen = vi.fn(world.ports.startOffscreen);
+    world.ports.startOffscreen = startOffscreen;
+    const m = manager(world);
+    await m.start();
+    expect(startOffscreen).toHaveBeenCalledWith(expect.objectContaining({ sourceLanguage: 'ja', targetLanguage: 'zh-TW' }));
+    const snap = await m.snapshot();
+    expect(snap.sourceLanguage).toBe('ja');
+    expect(snap.targetLanguage).toBe('zh-TW');
+    // Settings changed after start must not affect the running session's snapshot.
+    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko' });
+    expect((await m.snapshot()).targetLanguage).toBe('zh-TW');
   });
 
   it('uses a stream id obtained by the popup and skips the worker fallback', async () => {

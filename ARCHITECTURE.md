@@ -30,7 +30,8 @@
 | Popup | `packages/extension/src/popup/` | Start/Stop 按钮、状态轮询（250 ms）、音频电平、错误显示 | 不持有任何资源 |
 | Service Worker | `src/background/service-worker.ts`（Chrome 接线）、`session-manager.ts`（纯状态机）、`chrome-ports.ts`（chrome.* 实现） | 唯一 session 的生命周期；取 `streamId`；创建/关闭 Offscreen；转发字幕到 tab；tab 关闭时自动停止 | 不碰音频、不连 WebSocket |
 | Offscreen Document | `src/offscreen/` | `getUserMedia(streamId)` → Web Audio 回放 + AnalyserNode 电平 → WebSocket 连后端并做协议握手；把 `transcript` 转给 SW | 不访问 tabs API（Offscreen 无此权限） |
-| Content Script | `src/content/` | 识别平台与播放器容器；Shadow DOM 字幕层；按 segmentId/revision 规则更新；Stop 时移除 | 不改播放器 UI |
+| Content Script | `src/content/` | 通过 `PlayerAdapter` 识别播放器容器；`OverlayBinder` 让 Shadow DOM 字幕层跟随导航重挂；按 segmentId/revision 规则更新；订阅设置变更即时改样式；Stop 时移除 | 不改播放器 UI |
+| Settings | `src/shared/settings.ts`、`settings-store.ts` | 设置模型、默认值、`normalizeSettings` 校验/钳制/迁移；`chrome.storage.local` 封装与 `onChanged` 订阅 | 无 UI |
 | Protocol | `packages/protocol/` | 类型 + 手写校验（`validateClientMessage` / `validateServerMessage`） | 无运行时依赖 |
 | Backend | `packages/server/` | `/ws` WebSocket、`/healthz`；每连接一个 `ConnectionHandler` → 至多一个 `MockSession` | 无 ASR/翻译、无持久化 |
 
@@ -42,12 +43,35 @@
 - **Content Script 必须是单文件 IIFE**（MV3 不允许 content script 为 ES module），所以 `vite.content.config.ts` 用 lib 模式单独打包；其余入口（SW / popup / offscreen）走 `vite.config.ts` 多入口 ESM。
 - **浏览器 API 与业务逻辑分离**：`session-manager.ts` 只依赖 `SessionPorts` 接口，可在 Node 里用假实现完整测试 start/stop/重启/tab 关闭等路径；`chrome-ports.ts` 是唯一调用 `chrome.tabCapture` / `chrome.offscreen` 的地方。
 
+## 设置流（Phase 1）
+
+```
+Popup 控件 ──SettingsStore.update──▶ chrome.storage.local["settings"]
+                                          │ storage.onChanged
+                    ┌─────────────────────┴──────────────────────┐
+                    ▼                                            ▼
+        Content Script: overlay.setStyle()             Popup 其他实例同步显示
+        （样式即时生效，会话进行中也一样）
+SW 在 start() 时调用 loadLanguages() 读取一次语言 → 写入 session 状态 → 传给 Offscreen 的 session.start
+（之后改语言不影响当前会话；popup 比较 snapshot 与设置，显示「下次开始时生效」）
+```
+
+- 所有读取都经过 `normalizeSettings`：未知语言回退默认、数值钳制到 `STYLE_LIMITS`、缺失字段补默认。带 `version` 字段以便将来迁移。
+- 样式通过 Shadow DOM 宿主上的 CSS 变量（`--lst-font-size` / `--lst-bottom` / `--lst-bg-alpha`）生效，改样式不重建 DOM。
+
+## 播放器适配（Phase 1）
+
+`src/content/players/`：`PlayerAdapter { platform, findContainer(root), watch(doc, onChange) }`。
+- YouTube：容器 `#movie_player`；`watch` 监听 `yt-navigate-finish` / `yt-page-data-updated` / `fullscreenchange`，并每秒做一次健康检查（YouTube 在迷你播放器等过渡中会替换元素且无事件）。
+- Twitch：容器 `[data-a-target="video-player"]` 等；`fullscreenchange` + 每秒健康检查。Phase 1 只做检测与重挂，不验证音频。
+- `OverlayBinder`：容器变了就 remount 并重绘最近字幕；播放器消失就移除字幕层；`unbind` 停止一切监听。
+
 ## 一次 Start 的完整流程
 
 1. Popup → SW `popup.start`。
 2. SW（`SessionManager.start`，串行锁防并发）：状态必须是 `idle`；若发现残留 Offscreen 先关闭。
 3. 取当前 tab → `content.detect` 询问 content script（平台 + 是否找到播放器）。
-4. 状态写为 `starting` → `chrome.tabCapture.getMediaStreamId({targetTabId})`。
+4. `loadLanguages()` 读取设置中的语言 → 状态写为 `starting`（含语言）→ 使用 popup 传来的 streamId（fallback：SW 内 `getMediaStreamId`）。
 5. `ensureOffscreen()` → 向 Offscreen 发 `offscreen.start{streamId, backendUrl, languages}`。
 6. Offscreen：`getUserMedia` → `AudioContext`：`source → destination`（可听）、`source → analyser`（电平）→ `BackendClient.connect()` 发 `session.start`，等 `session.ready`（超时 5 s）。
 7. 成功：SW 状态写为 `active{sessionId, tabId}` → 通知 content script `content.sessionStarted`。
