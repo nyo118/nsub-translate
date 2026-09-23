@@ -53,7 +53,8 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
                                                                                         │ Segmenter
                                                                                         │  ├─ Silero VAD 512 样本窗
                                                                                         │  ├─ 说话中每 ≥0.6 s：解码「本句至今」→ partial(revision++)
-                                                                                        │  └─ VAD 收尾 / 超 12 s：解码整句 → final
+                                                                                        │  ├─ 段 ≥5 s：在最近 1.5 s 找最安静 100 ms 窗软切分 → final + 新段接着
+                                                                                        │  └─ VAD 收尾（停顿 ≥0.3 s）/ 超 8 s：解码本段剩余音频 → final
                                                                                         ▼
                                                                     transcript / metrics ──▶ Session ──▶ 扩展（沿 Phase 0 路径到字幕层）
 ```
