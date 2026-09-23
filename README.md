@@ -2,7 +2,7 @@
 
 个人用 Chrome 扩展：在 YouTube / Twitch 视频内叠加**双语实时字幕**。
 
-当前状态：**Phase 2 — 流式语音识别**（Phase 0/1 已验收）。tab 音频以 16 kHz PCM 流送到本地后端，由**本机运行的 SenseVoice-Small**（via sherpa-onnx，免费、离线、支持中/英/日/韩/粤语自动检测）做识别，字幕层显示实时原文。**翻译尚未接入**（Phase 3）。
+当前状态：**Phase 3 — 多语翻译**（Phase 0–2 已验收）。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
 
 ## 目录结构
 
@@ -29,7 +29,7 @@ TEST_PLAN.md         自动化与人工测试计划
 ```bash
 nvm use            # 读取 .nvmrc → Node 22
 npm install
-npm run models:download           # 下载 SenseVoice int8（约 160 MB）+ Silero VAD 到 packages/server/models
+npm run models:download           # 下载 SenseVoice int8（约 160 MB）+ Silero VAD + Hy-MT2-1.8B Q4_K_M（约 1.1 GB）到 packages/server/models
 npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 ```
 
@@ -47,8 +47,11 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 | `npm run start:server` | 用 `packages/server/dist` 启动后端（需先 build） |
 | `npm run test:e2e` | 先 build，再用 Playwright 加载扩展跑 smoke 测试（自动启动后端） |
 
-后端环境变量：
+后端环境变量（可写在 `packages/server/.env`，见 `.env.example`；`.env` 不入库）：
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。
+- `TRANSLATION_PROVIDER`：`hy-mt2`（默认，本机翻译）、`google`（需 `GOOGLE_TRANSLATE_API_KEY`，每月前 50 万字符免费）、`mock`、`none`（只显示原文）。
+- `TRANSLATION_THREADS`：本机翻译线程数（默认 3）。
+- `GOOGLE_TRANSLATE_API_KEY`：仅 `google` 需要，**只放后端 .env，永不进扩展**。
 - `MODELS_DIR`：模型目录（默认 `packages/server/models`）。
 - `ASR_THREADS`：识别线程数（默认 2；4 核以上可设 4）。
 - `METRICS_INTERVAL_MS`：`session.metrics` 间隔（默认 5000）。
@@ -62,9 +65,10 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 nvm use
 npm run dev:server
 # 期望日志：SenseVoice model loaded { ms: ~3000 }
+#          Hy-MT2 model loaded { ms: ~3000 } / Hy-MT2 warm-up done
 #          Server listening at http://127.0.0.1:8787
 #          WebSocket endpoint: ws://127.0.0.1:8787/ws
-curl http://127.0.0.1:8787/healthz   # → {"ok":true,"openConnections":0,"asrProvider":"sensevoice"}
+curl http://127.0.0.1:8787/healthz   # → {"ok":true,"openConnections":0,"asrProvider":"sensevoice","translationProvider":"hy-mt2"}
 ```
 
 模型缺失时启动会直接报错并提示 `npm run models:download`。
@@ -91,7 +95,7 @@ npm run build
 1. `npm run dev:server` 保持运行。
 2. 打开一个普通 YouTube 视频并开始播放。
 3. 点扩展图标 → popup 提示「YouTube 播放器已就绪」→ 点 **▶ 开始字幕**。
-4. 预期：视频声音**继续**可听；按钮变为 `● 正在翻译`、下方细条随声音跳动；说话约 1 秒后出现斜体 partial 原文并不断修正，句子停顿后变为加粗 final；popup 显示「识别：SenseVoice · 自动检测 · 延迟 ≈ x s」。
+4. 预期：视频声音**继续**可听；按钮变为 `● 正在翻译`、下方细条随声音跳动；说话约 1 秒后出现斜体 partial 原文并不断修正，句子停顿后变为加粗 final，再过约 2–4 秒同一段下方补出中文译文；popup 显示「识别 SenseVoice · 自动检测 · x s ｜ 翻译 Hy-MT2 · y s」。
 5. 点 **停止**：字幕层消失、状态回到 `● Ready`、后端日志出现 `session stopped`。
 6. 再开始 / 停止一次，确认没有重复字幕层、重复 session。
 
@@ -110,9 +114,18 @@ npm run build
 - 断线重连：后端重启时扩展会以 0.5/1/2/4 s 退避重试最多 5 次并自动开新会话；期间 popup 显示「正在重新连接」，音频丢弃不缓存。
 - 音频**只在本机**流转（扩展 → 127.0.0.1 → 本机模型），不上传、不落盘。
 
-## 已知限制（Phase 2）
+## 翻译（Phase 3）
 
-- 只有原文，没有翻译（Phase 3）。
+- 默认本机 Hy-MT2-1.8B（Q4_K_M GGUF，Apache-2.0，36 语种），提示词用官方模板，附带前 2 句作为上下文以保持术语一致。腾讯官方 2-bit / 1.25-bit 版依赖尚未合入 llama.cpp 的 STQ kernel，node-llama-cpp 无法加载，所以选 Q4_K_M。
+- 流程：每个 final 入队 → 串行翻译（一次一句）→ 以同一 `segmentId` 的更高 `revision` 补上 `translatedText`。积压超过 3 句时最旧的放弃翻译（原文保留）。单句超时 15 s；连续失败 3 次后本会话只显示原文并提示。
+- 「边说边翻译」开关（popup）：开启后未说完的句子每 ≥ 2 s 也翻译一次，译文会反复变化且更耗 CPU；默认关闭。
+- 性能：i7-8559U 上一句 1.5–4.5 s（机器空闲时更快）。翻译进行中会与识别争抢 CPU，识别延迟可能从 0.4 s 升到 1 s。
+- Google 方案：`TRANSLATION_PROVIDER=google` + `.env` 中的 key；延迟约 0.3 s，不占本机 CPU。
+
+## 已知限制（Phase 3）
+
+- 译文比原文晚 2–4 s 出现（本机翻译）；机器繁忙时更久。
+- 识别切错的句子（如软切分切在词中）翻译也会跟着错。
 - 背景音乐 / 多人同时说话会明显降低识别质量，这是 ASR 模型本身的限制。
 - Auto Detect 按整句判断语种；一句话内中英夹杂时 SenseVoice 表现尚可，日英夹杂未系统评估。
 - 首次启动后端需加载模型（约 3–7 s）。

@@ -7,7 +7,9 @@ import {
   type ClientMessage,
   type ServerMessage,
   type SessionMetricsMessage,
+  type SessionOptions,
   type TranscriptMessage,
+  type TranslationInfo,
 } from './index.js';
 
 /**
@@ -62,16 +64,19 @@ export function validateClientMessage(value: unknown): ParseResult<ClientMessage
       if (!isNonEmptyString(value['targetLanguage'])) return { ok: false, error: 'targetLanguage is required' };
       const audio = validateAudioFormat(value['audio']);
       if (!audio.ok) return audio;
-      return {
-        ok: true,
-        message: {
-          type: 'session.start',
-          protocolVersion: PROTOCOL_VERSION,
-          sourceLanguage: value['sourceLanguage'],
-          targetLanguage: value['targetLanguage'],
-          audio: audio.message,
-        },
+      const message: ClientMessage = {
+        type: 'session.start',
+        protocolVersion: PROTOCOL_VERSION,
+        sourceLanguage: value['sourceLanguage'],
+        targetLanguage: value['targetLanguage'],
+        audio: audio.message,
       };
+      if (value['options'] !== undefined) {
+        const options = validateOptions(value['options']);
+        if (!options.ok) return options;
+        message.options = options.message;
+      }
+      return { ok: true, message };
     }
     case 'session.stop':
     case 'session.ping': {
@@ -101,6 +106,21 @@ export function validateAudioFrame(data: unknown): ParseResult<Int16Array> {
   return { ok: true, message: new Int16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2) };
 }
 
+function validateOptions(value: unknown): ParseResult<SessionOptions> {
+  if (!isRecord(value)) return { ok: false, error: 'options must be an object' };
+  if (value['translatePartials'] !== undefined && typeof value['translatePartials'] !== 'boolean') {
+    return { ok: false, error: 'options.translatePartials must be a boolean' };
+  }
+  return { ok: true, message: { translatePartials: value['translatePartials'] === true } };
+}
+
+function validateTranslationInfo(value: unknown): ParseResult<TranslationInfo> {
+  if (!isRecord(value)) return { ok: false, error: 'translation info is required' };
+  if (!isNonEmptyString(value['provider'])) return { ok: false, error: 'translation.provider is required' };
+  if (!isNonEmptyString(value['targetLanguage'])) return { ok: false, error: 'translation.targetLanguage is required' };
+  return { ok: true, message: { provider: value['provider'], targetLanguage: value['targetLanguage'] } };
+}
+
 function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
   if (!isRecord(value)) return { ok: false, error: 'asr info is required' };
   if (!isNonEmptyString(value['provider'])) return { ok: false, error: 'asr.provider is required' };
@@ -110,7 +130,7 @@ function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
 
 function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessage> {
   if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
-  for (const key of ['audioSeconds', 'partials', 'finals', 'avgDecodeMs', 'avgLatencyMs'] as const) {
+  for (const key of ['audioSeconds', 'partials', 'finals', 'avgDecodeMs', 'avgLatencyMs', 'translated', 'avgTranslateMs', 'translationBacklog'] as const) {
     if (!isFiniteNumber(value[key]) || value[key] < 0) return { ok: false, error: `${key} must be a number >= 0` };
   }
   return {
@@ -123,6 +143,9 @@ function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessag
       finals: value['finals'] as number,
       avgDecodeMs: value['avgDecodeMs'] as number,
       avgLatencyMs: value['avgLatencyMs'] as number,
+      translated: value['translated'] as number,
+      avgTranslateMs: value['avgTranslateMs'] as number,
+      translationBacklog: value['translationBacklog'] as number,
     },
   };
 }
@@ -159,7 +182,9 @@ export function validateServerMessage(value: unknown): ParseResult<ServerMessage
       if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
       const asr = validateAsrInfo(value['asr']);
       if (!asr.ok) return asr;
-      return { ok: true, message: { type: 'session.ready', sessionId: value['sessionId'], asr: asr.message } };
+      const translation = validateTranslationInfo(value['translation']);
+      if (!translation.ok) return translation;
+      return { ok: true, message: { type: 'session.ready', sessionId: value['sessionId'], asr: asr.message, translation: translation.message } };
     }
     case 'session.pong':
     case 'session.stopped': {

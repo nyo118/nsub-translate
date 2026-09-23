@@ -6,6 +6,8 @@ import {
   type AsrInfo,
   type ClientMessage,
   type ServerMessage,
+  type SessionOptions,
+  type TranslationInfo,
 } from '@lst/protocol';
 
 /** Minimal WebSocket shape so the client can be unit-tested with a fake. */
@@ -29,7 +31,13 @@ export interface BackendClientEvents {
   onInvalid?: (error: string) => void;
   /** Reconnection lifecycle (only when `reconnect` is configured). */
   onReconnecting?: (attempt: number) => void;
-  onReconnected?: (sessionId: string, asr: AsrInfo) => void;
+  onReconnected?: (sessionId: string, asr: AsrInfo, translation: TranslationInfo) => void;
+}
+
+export interface ConnectParams {
+  sourceLanguage: string;
+  targetLanguage: string;
+  options?: SessionOptions;
 }
 
 export interface ReconnectPolicy {
@@ -52,12 +60,13 @@ export class BackendClient {
   private socket: SocketLike | null = null;
   private _sessionId: string | null = null;
   private _asr: AsrInfo | null = null;
+  private _translation: TranslationInfo | null = null;
   private closedByUs = false;
   private readonly factory: SocketFactory;
   private readonly events: BackendClientEvents;
   private readonly reconnect: ReconnectPolicy | null;
   private stoppedResolver: (() => void) | null = null;
-  private lastConnect: { url: string; languages: { sourceLanguage: string; targetLanguage: string } } | null = null;
+  private lastConnect: { url: string; languages: ConnectParams } | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnecting = false;
   private audioFramesSent = 0;
@@ -85,6 +94,10 @@ export class BackendClient {
     return this._asr;
   }
 
+  get translation(): TranslationInfo | null {
+    return this._translation;
+  }
+
   get isReconnecting(): boolean {
     return this.reconnecting;
   }
@@ -98,14 +111,14 @@ export class BackendClient {
     return ['connecting', 'open', 'closing', 'closed'][this.socket.readyState] ?? String(this.socket.readyState);
   }
 
-  connect(url: string, languages: { sourceLanguage: string; targetLanguage: string }, timeoutMs: number): Promise<string> {
+  connect(url: string, languages: ConnectParams, timeoutMs: number): Promise<string> {
     if (this.socket !== null) return Promise.reject(new Error('already connected'));
     this.lastConnect = { url, languages };
     this.closedByUs = false;
     return this.open(url, languages, timeoutMs);
   }
 
-  private open(url: string, languages: { sourceLanguage: string; targetLanguage: string }, timeoutMs: number): Promise<string> {
+  private open(url: string, languages: ConnectParams, timeoutMs: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let settled = false;
       const socket = this.factory(url);
@@ -119,7 +132,15 @@ export class BackendClient {
       }, timeoutMs);
 
       socket.onopen = () => {
-        this.send({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, ...languages, audio: AUDIO_FORMAT });
+        const start: ClientMessage = {
+          type: 'session.start',
+          protocolVersion: PROTOCOL_VERSION,
+          sourceLanguage: languages.sourceLanguage,
+          targetLanguage: languages.targetLanguage,
+          audio: AUDIO_FORMAT,
+        };
+        if (languages.options !== undefined) start.options = languages.options;
+        this.send(start);
       };
       socket.onerror = () => {
         // The close event that follows carries the useful information.
@@ -136,6 +157,7 @@ export class BackendClient {
             clearTimeout(timer);
             this._sessionId = message.sessionId;
             this._asr = message.asr;
+            this._translation = message.translation;
             resolve(message.sessionId);
           } else if (message.type === 'session.error') {
             settled = true;
@@ -188,7 +210,11 @@ export class BackendClient {
       this.open(url, languages, CONNECT_TIMEOUT_MS).then(
         (sessionId) => {
           this.reconnecting = false;
-          this.events.onReconnected?.(sessionId, this._asr ?? { provider: 'unknown', language: languages.sourceLanguage });
+          this.events.onReconnected?.(
+            sessionId,
+            this._asr ?? { provider: 'unknown', language: languages.sourceLanguage },
+            this._translation ?? { provider: 'unknown', targetLanguage: languages.targetLanguage },
+          );
         },
         () => {
           const delay = policy.delaysMs[Math.min(attempt - 1, policy.delaysMs.length - 1)] ?? 1000;
@@ -243,6 +269,7 @@ export class BackendClient {
     this.socket = null;
     this._sessionId = null;
     this._asr = null;
+    this._translation = null;
     if (socket !== null) {
       try {
         socket.close(1000, 'client stop');

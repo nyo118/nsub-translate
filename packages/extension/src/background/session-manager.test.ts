@@ -17,7 +17,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const calls: string[] = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
-    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW' }),
+    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false }),
     saveState: async (s) => {
       stored.value = s;
     },
@@ -41,7 +41,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
     },
     startOffscreen: async () => {
       calls.push('startOffscreen');
-      return { ok: true, sessionId: 'sid-1', asr: { provider: 'mock', language: 'auto' } };
+      return { ok: true, sessionId: 'sid-1', asr: { provider: 'mock', language: 'auto' }, translation: { provider: 'mock', targetLanguage: 'zh-TW' } };
     },
     stopOffscreen: async () => {
       calls.push('stopOffscreen');
@@ -92,7 +92,7 @@ describe('SessionManager', () => {
     expect(snap.sourceLanguage).toBe('ja');
     expect(snap.targetLanguage).toBe('zh-TW');
     // Settings changed after start must not affect the running session's snapshot.
-    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko' });
+    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true });
     expect((await m.snapshot()).targetLanguage).toBe('zh-TW');
   });
 
@@ -230,16 +230,18 @@ describe('SessionManager', () => {
     await m.start();
     let snap = await m.snapshot();
     expect(snap.asr).toEqual({ provider: 'mock', language: 'auto' });
+    expect(snap.translation).toEqual({ provider: 'mock', targetLanguage: 'zh-TW' });
     expect(snap.connection).toBe('connected');
-    m.onMetrics({ type: 'session.metrics', sessionId: 'sid-1', audioSeconds: 3, partials: 2, finals: 1, avgDecodeMs: 300, avgLatencyMs: 800 });
+    m.onMetrics({ type: 'session.metrics', sessionId: 'sid-1', audioSeconds: 3, partials: 2, finals: 1, avgDecodeMs: 300, avgLatencyMs: 800, translated: 1, avgTranslateMs: 1200, translationBacklog: 0 });
     m.onReconnecting();
     snap = await m.snapshot();
     expect(snap.metrics?.avgLatencyMs).toBe(800);
     expect(snap.connection).toBe('reconnecting');
-    await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'ja' });
+    await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'ja' }, { provider: 'hy-mt2', targetLanguage: 'zh-TW' });
     snap = await m.snapshot();
     expect(snap.sessionId).toBe('sid-2');
     expect(snap.asr?.language).toBe('ja');
+    expect(snap.translation?.provider).toBe('hy-mt2');
     expect(snap.connection).toBe('connected');
     expect(snap.metrics).toBeUndefined();
     expect(world.contentMessages.filter((c) => c.type === 'content.sessionStarted')).toHaveLength(2);

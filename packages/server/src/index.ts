@@ -2,6 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { loadConfig } from './config.js';
 import { startServer } from './app.js';
 
+// Backend-only secrets (e.g. GOOGLE_TRANSLATE_API_KEY) live in packages/server/.env or the repo root .env.
+for (const candidate of [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)]) {
+  try {
+    process.loadEnvFile(candidate);
+    break;
+  } catch {
+    /* no .env here */
+  }
+}
+
 let app: FastifyInstance;
 try {
   const config = loadConfig();

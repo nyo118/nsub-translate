@@ -56,6 +56,8 @@ export interface Settings {
   version: typeof SETTINGS_VERSION;
   sourceLanguage: string;
   targetLanguage: string;
+  /** Also translate in-progress sentences (more CPU). Applies on next start. */
+  translatePartials: boolean;
   style: SubtitleStyle;
 }
 
@@ -77,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
   sourceLanguage: AUTO_DETECT,
   targetLanguage: 'zh-CN',
+  translatePartials: false,
   style: { ...DEFAULT_STYLE },
 };
 
@@ -101,6 +104,7 @@ export function normalizeSettings(raw: unknown): Settings {
     version: SETTINGS_VERSION,
     sourceLanguage: language(r['sourceLanguage'], SOURCE_LANGUAGES, DEFAULT_SETTINGS.sourceLanguage),
     targetLanguage: language(r['targetLanguage'], TARGET_LANGUAGES, DEFAULT_SETTINGS.targetLanguage),
+    translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
     style: {
       fontSize: clamp(s['fontSize'], DEFAULT_STYLE.fontSize, STYLE_LIMITS.fontSize.min, STYLE_LIMITS.fontSize.max),
       position: clamp(s['position'], DEFAULT_STYLE.position, STYLE_LIMITS.position.min, STYLE_LIMITS.position.max),

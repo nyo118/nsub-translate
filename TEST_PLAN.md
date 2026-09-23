@@ -91,6 +91,32 @@
 | P2-9 | 视频暂停 | 无 partial 产生，CPU 回落（VAD 无语音） |
 | P2-10 | `ASR_PROVIDER=mock npm run dev:server` | 行为与 Phase 1 相同（固定脚本） |
 
+## Phase 3 增补
+
+### 自动化
+| 层 | 覆盖 |
+|---|---|
+| 协议 v3 | `options.translatePartials` 校验、`session.ready.translation`、metrics 新字段 |
+| TranslationPipeline（假 adapter） | 原文即时转发 + 译文作为更高 revision；串行与上下文；积压丢弃；partial 节流/被 final 取代/过期结果丢弃；超时与连续失败降级；stop 中止 |
+| Hy-MT2 adapter | 提示词构造、输出清理；**真实模型集成**（英→简中含「首领/金」，abort 生效；模型缺失自动 skip） |
+| Google adapter（假 fetch） | 请求体、auto 源语言、错误不泄露 key、无 key 拒绝启动 |
+| Session / Handler / App | 译文 revision、metrics、`unsupported_language`、healthz 含 translationProvider |
+| 扩展 | 设置 `translatePartials`、握手带 options、snapshot/popup 翻译信息 |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| P3-1 | `npm run dev:server` | 日志 `Hy-MT2 model loaded` 与 `Hy-MT2 warm-up done`；healthz `translationProvider: hy-mt2` |
+| P3-2 | 英文视频，目标简体中文 | 每个 final 出现后 2–4 s 下方补出中文；原文与译文同框 |
+| P3-3 | 日文视频 | 同上，译文为中文 |
+| P3-4 | 目标改为繁體中文 / English 后重新开始 | 译文语言相应变化 |
+| P3-5 | 开启「边说边翻译」后重新开始 | 说话中译文也出现并反复修正；关闭后只在 final 后出现 |
+| P3-6 | popup 指标 | 「翻译 Hy-MT2 · x s」出现；积压 >1 时显示「排队 n」 |
+| P3-7 | `TRANSLATION_PROVIDER=none` 重启后端并开始 | 只显示原文，popup 显示「翻译 无」 |
+| P3-8 | `TRANSLATION_PROVIDER=google` 且无 key | 后端启动失败并提示 `GOOGLE_TRANSLATE_API_KEY` |
+| P3-9 | 删除/改名 GGUF 后启动 | 启动失败并提示 `npm run models:download` |
+| P3-10 | 翻译期间观察识别延迟 | 上升但字幕仍连续；机器空闲时 < 1.5 s |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

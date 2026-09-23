@@ -35,6 +35,10 @@ describe('normalizeSettings', () => {
     expect(s.targetLanguage).toBe('en');
     expect(s.style).toEqual({ fontSize: 48, position: 0, backgroundOpacity: 0.5, showSource: false, showTranslated: true });
   });
+  it('normalises translatePartials to a boolean', () => {
+    expect(normalizeSettings({ translatePartials: true }).translatePartials).toBe(true);
+    expect(normalizeSettings({ translatePartials: 'yes' }).translatePartials).toBe(false);
+  });
   it('rejects unknown languages and never allows auto as a target', () => {
     expect(normalizeSettings({ sourceLanguage: 'xx' }).sourceLanguage).toBe(AUTO_DETECT);
     expect(normalizeSettings({ targetLanguage: AUTO_DETECT }).targetLanguage).toBe(DEFAULT_SETTINGS.targetLanguage);

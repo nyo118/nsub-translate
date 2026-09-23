@@ -15,6 +15,7 @@
     "@fastify/websocket": "^11.3.1",
     "@lst/protocol": "0.0.1",
     "fastify": "^5.12.5",
+    "node-llama-cpp": "^3.21.1",
     "sherpa-onnx-node": "^1.13.8"
   },
   "devDependencies": {

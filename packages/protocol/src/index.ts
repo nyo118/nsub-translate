@@ -5,7 +5,14 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 2 as const;
+export const PROTOCOL_VERSION = 3 as const;
+
+/**
+ * v3 (Phase 3): `session.start.options` (partial translation toggle),
+ * `session.ready.translation`, translation counters in `session.metrics`
+ * and translation error codes. `transcript.translatedText` is now filled
+ * in by the backend as a later revision of the same segment.
+ */
 
 /**
  * v2 (Phase 2): audio is streamed from the extension to the backend as raw
@@ -31,12 +38,18 @@ export type TranscriptStatus = 'partial' | 'final';
 // Client -> Server
 // ---------------------------------------------------------------------------
 
+export interface SessionOptions {
+  /** Also translate in-progress (partial) segments, throttled. Default false. */
+  translatePartials: boolean;
+}
+
 export interface SessionStartMessage {
   type: 'session.start';
   protocolVersion: ProtocolVersion;
   sourceLanguage: string;
   targetLanguage: string;
   audio: AudioFormat;
+  options?: SessionOptions;
 }
 
 export interface SessionStopMessage {
@@ -62,10 +75,17 @@ export interface AsrInfo {
   language: string;
 }
 
+export interface TranslationInfo {
+  /** e.g. "hy-mt2", "google", "mock", "none" */
+  provider: string;
+  targetLanguage: string;
+}
+
 export interface SessionReadyMessage {
   type: 'session.ready';
   sessionId: string;
   asr: AsrInfo;
+  translation: TranslationInfo;
 }
 
 export interface SessionMetricsMessage {
@@ -79,6 +99,12 @@ export interface SessionMetricsMessage {
   avgDecodeMs: number;
   /** Mean time from the last audio sample of a segment arriving to its transcript being emitted (ms). */
   avgLatencyMs: number;
+  /** Segments translated so far. */
+  translated: number;
+  /** Mean translation time over the last window (ms). */
+  avgTranslateMs: number;
+  /** Finals waiting for translation right now. */
+  translationBacklog: number;
 }
 
 export interface TranscriptMessage {
@@ -122,6 +148,9 @@ export type SessionErrorCode =
   | 'session_already_started'
   | 'asr_unavailable'
   | 'asr_failed'
+  | 'translation_unavailable'
+  | 'translation_failed'
+  | 'unsupported_language'
   | 'internal_error';
 
 export type ServerMessage =

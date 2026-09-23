@@ -6,9 +6,14 @@ import type { AsrAdapterFactory } from './asr/types.js';
 import type { ServerConfig } from './config.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createSherpaFactory } from './asr/sherpa-adapter.js';
+import type { TranslationAdapterFactory } from './translation/types.js';
+import { createMockTranslationFactory, createNoneTranslationFactory } from './translation/mock-adapter.js';
+import { createGoogleTranslationFactory } from './translation/google-adapter.js';
+import { createHyMt2Factory } from './translation/hymt2-adapter.js';
 
 export interface AppOptions {
   asr: AsrAdapterFactory;
+  translation: TranslationAdapterFactory;
   logger?: boolean;
   metricsIntervalMs?: number;
 }
@@ -21,7 +26,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   let openConnections = 0;
 
-  app.get('/healthz', async () => ({ ok: true, openConnections, asrProvider: options.asr.provider }));
+  app.get('/healthz', async () => ({ ok: true, openConnections, asrProvider: options.asr.provider, translationProvider: options.translation.provider }));
 
   app.get('/ws', { websocket: true }, (socket, req) => {
     openConnections += 1;
@@ -31,6 +36,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     const handler = new ConnectionHandler({
       send,
       asr: options.asr,
+      translation: options.translation,
       log: req.log,
       ...(options.metricsIntervalMs === undefined ? {} : { metricsIntervalMs: options.metricsIntervalMs }),
     });
@@ -54,18 +60,36 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   return app;
 }
 
-export function createAsrFactory(config: ServerConfig, log: AppOptions['asr'] extends never ? never : { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void }): AsrAdapterFactory {
+type BootLog = { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
+
+export function createAsrFactory(config: ServerConfig, log: BootLog): AsrAdapterFactory {
   return config.asrProvider === 'mock'
     ? createMockFactory(config.mockTickMs)
     : createSherpaFactory({ modelsDir: config.modelsDir, numThreads: config.asrThreads, log });
 }
 
+export function createTranslationFactory(config: ServerConfig, log: BootLog): TranslationAdapterFactory & { dispose?: () => Promise<void> } {
+  switch (config.translationProvider) {
+    case 'mock':
+      return createMockTranslationFactory();
+    case 'none':
+      return createNoneTranslationFactory();
+    case 'google':
+      return createGoogleTranslationFactory({ apiKey: config.googleTranslateApiKey });
+    case 'hy-mt2':
+      return createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log });
+  }
+}
+
 export async function startServer(config: ServerConfig): Promise<FastifyInstance> {
-  const bootLog = { info: (o: Record<string, unknown>, m: string) => console.info(m, o), warn: (o: Record<string, unknown>, m: string) => console.warn(m, o) };
+  const bootLog: BootLog = { info: (o, m) => console.info(m, o), warn: (o, m) => console.warn(m, o) };
   const asr = createAsrFactory(config, bootLog);
+  const translation = createTranslationFactory(config, bootLog);
   await asr.prepare();
-  const app = await buildApp({ asr, metricsIntervalMs: config.metricsIntervalMs });
+  await translation.prepare();
+  const app = await buildApp({ asr, translation, metricsIntervalMs: config.metricsIntervalMs });
+  if (translation.dispose) app.addHook('onClose', async () => translation.dispose?.());
   await app.listen({ host: config.host, port: config.port });
-  app.log.info({ asrProvider: asr.provider }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
+  app.log.info({ asrProvider: asr.provider, translationProvider: translation.provider }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
   return app;
 }

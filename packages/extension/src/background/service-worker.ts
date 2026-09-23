@@ -51,7 +51,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       sendResponse({ ok: true });
       return false;
     case 'offscreen.reconnected':
-      return respond(manager.onReconnected(message.sessionId, message.asr).then(() => ({ ok: true })));
+      return respond(manager.onReconnected(message.sessionId, message.asr, message.translation).then(() => ({ ok: true })));
     case 'offscreen.disconnected':
       return respond(manager.onOffscreenDisconnected(message.reason).then(() => ({ ok: true })));
     default:

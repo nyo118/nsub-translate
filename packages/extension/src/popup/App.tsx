@@ -130,7 +130,12 @@ export function App() {
   const canStop = (isActive || sessionStatus === 'starting') && !busy;
   const shownError = error ?? (sessionStatus === 'idle' ? snapshot?.lastError : undefined);
   const languagesPending =
-    isActive && snapshot !== null && (snapshot.sourceLanguage !== settings.sourceLanguage || snapshot.targetLanguage !== settings.targetLanguage);
+    isActive &&
+    snapshot !== null &&
+    (snapshot.sourceLanguage !== settings.sourceLanguage ||
+      snapshot.targetLanguage !== settings.targetLanguage ||
+      (snapshot.translatePartials !== undefined && snapshot.translatePartials !== settings.translatePartials));
+  const providerName = (p: string | undefined) => (p === 'sensevoice' ? 'SenseVoice' : p === 'hy-mt2' ? 'Hy-MT2' : p === 'google' ? 'Google' : p === 'none' ? '无' : p ?? '…');
 
   return (
     <div className="app">
@@ -169,6 +174,9 @@ export function App() {
             </select>
           </div>
         </div>
+        <label className="check subtle">
+          <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；下次开始时生效）
+        </label>
         {languagesPending && snapshot && (
           <div className="pending">
             当前会话仍使用 {languageLabel(snapshot.sourceLanguage ?? '')} → {languageLabel(snapshot.targetLanguage ?? '')}，新语言将在下次开始时生效。
@@ -192,9 +200,11 @@ export function App() {
               <div className="asr-line">
                 {snapshot?.connection === 'reconnecting'
                   ? '正在重新连接本地后端…'
-                  : `识别：${snapshot?.asr?.provider === 'sensevoice' ? 'SenseVoice' : snapshot?.asr?.provider ?? '…'} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
-                      snapshot?.metrics ? ` · 延迟 ≈ ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
-                    }`}
+                  : `识别 ${providerName(snapshot?.asr?.provider)} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
+                      snapshot?.metrics ? ` · ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
+                    }  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
+                      snapshot?.metrics && snapshot.metrics.translated > 0 ? ` · ${(snapshot.metrics.avgTranslateMs / 1000).toFixed(1)} s` : ''
+                    }${snapshot?.metrics && snapshot.metrics.translationBacklog > 1 ? ` · 排队 ${snapshot.metrics.translationBacklog}` : ''}`}
               </div>
             </>
           )}
@@ -241,7 +251,7 @@ export function App() {
         )}
       </section>
 
-      <div className="footer">本地后端 · 本机语音识别 · 翻译将在下一阶段接入</div>
+      <div className="footer">本地后端 · 本机语音识别与翻译</div>
     </div>
   );
 }

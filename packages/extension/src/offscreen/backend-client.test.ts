@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
 import { BackendClient, type ReconnectPolicy, type SocketLike } from './backend-client.js';
 
-const READY = { type: 'session.ready', sessionId: 'sid', asr: { provider: 'mock', language: 'en' } };
+const READY = { type: 'session.ready', sessionId: 'sid', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
 
 class FakeSocket implements SocketLike {
   readyState = 0;
@@ -64,11 +64,19 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 2, ...langs, audio: AUDIO_FORMAT });
+    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 3, ...langs, audio: AUDIO_FORMAT });
     s.receive(READY);
     await expect(p).resolves.toBe('sid');
     expect(client.sessionId).toBe('sid');
     expect(client.asr).toEqual({ provider: 'mock', language: 'en' });
+    expect(client.translation).toEqual({ provider: 'mock', targetLanguage: 'zh-CN' });
+  });
+
+  it('forwards session options in session.start', async () => {
+    const { client, sockets } = setup();
+    void client.connect('ws://x', { ...langs, options: { translatePartials: true } }, 1000).catch(() => undefined);
+    sockets[0]!.open();
+    expect(JSON.parse(sockets[0]!.sent[0]!).options).toEqual({ translatePartials: true });
   });
 
   it('rejects when the backend cannot be reached (socket closes before ready)', async () => {

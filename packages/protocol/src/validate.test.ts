@@ -23,6 +23,12 @@ describe('validateClientMessage', () => {
     const result = validateClientMessage({ ...start, extra: 'ignored' });
     expect(result).toEqual({ ok: true, message: start });
   });
+  it('accepts and normalises optional session options', () => {
+    const r = validateClientMessage({ ...start, options: { translatePartials: true } });
+    expect(r.ok && r.message.type === 'session.start' && r.message.options).toEqual({ translatePartials: true });
+    expect(validateClientMessage({ ...start, options: {} }).ok).toBe(true);
+    expect(validateClientMessage({ ...start, options: { translatePartials: 'yes' } }).ok).toBe(false);
+  });
   it('requires the v2 audio format', () => {
     const { audio: _audio, ...noAudio } = start;
     expect(validateClientMessage(noAudio).ok).toBe(false);
@@ -30,7 +36,7 @@ describe('validateClientMessage', () => {
     expect(validateClientMessage({ ...start, audio: { ...AUDIO_FORMAT, encoding: 'opus' } }).ok).toBe(false);
   });
   it('rejects a wrong protocol version', () => {
-    const result = validateClientMessage({ ...start, protocolVersion: 1 });
+    const result = validateClientMessage({ ...start, protocolVersion: 2 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/protocolVersion/);
   });
@@ -73,9 +79,10 @@ describe('validateServerMessage', () => {
     expect(validateServerMessage({ ...transcript, segmentId: '' }).ok).toBe(false);
   });
   it('accepts ready/pong/stopped/error/metrics', () => {
-    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1', asr: { provider: 'mock', language: 'auto' } }).ok).toBe(true);
-    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1' }).ok).toBe(false);
-    const metrics = { type: 'session.metrics', sessionId: 's1', audioSeconds: 12.5, partials: 3, finals: 1, avgDecodeMs: 420, avgLatencyMs: 900 };
+    const ready = { type: 'session.ready', sessionId: 's1', asr: { provider: 'mock', language: 'auto' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
+    expect(validateServerMessage(ready)).toEqual({ ok: true, message: ready });
+    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1', asr: ready.asr }).ok).toBe(false);
+    const metrics = { type: 'session.metrics', sessionId: 's1', audioSeconds: 12.5, partials: 3, finals: 1, avgDecodeMs: 420, avgLatencyMs: 900, translated: 1, avgTranslateMs: 1500, translationBacklog: 0 };
     expect(validateServerMessage(metrics)).toEqual({ ok: true, message: metrics });
     expect(validateServerMessage({ ...metrics, avgLatencyMs: -1 }).ok).toBe(false);
     expect(validateServerMessage({ type: 'session.pong', sessionId: 's1' }).ok).toBe(true);

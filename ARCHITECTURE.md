@@ -34,6 +34,7 @@
 | Settings | `src/shared/settings.ts`、`settings-store.ts` | 设置模型、默认值、`normalizeSettings` 校验/钳制/迁移；`chrome.storage.local` 封装与 `onChanged` 订阅 | 无 UI |
 | Protocol | `packages/protocol/` | 类型 + 手写校验（`validateClientMessage` / `validateServerMessage`） | 无运行时依赖 |
 | Backend | `packages/server/` | `/ws` WebSocket、`/healthz`；每连接一个 `ConnectionHandler` → 至多一个 `Session`；`Session` 持有一个 `AsrAdapter`（`sensevoice` 或 `mock`） | 无翻译、无持久化 |
+| Translation | `packages/server/src/translation/` | `TranslationAdapter` 接口；`TranslationPipeline`（final 队列、partial 节流、revision 归属、超时/失败降级，纯逻辑）；`hymt2-adapter.ts`（node-llama-cpp，进程内异步推理，跨会话共享模型）；`google-adapter.ts`（REST v2）；`mock-adapter.ts` | key 只在后端 |
 | ASR | `packages/server/src/asr/` | `AsrAdapter` 接口；`Segmenter`（VAD 分段 + partial/final 状态机，纯逻辑）；`sherpa-worker.ts`（worker 线程内持有原生 VAD/识别器）；`sherpa-adapter.ts`（主线程与 worker 的桥）；`mock-adapter.ts` | 不接触网络 |
 
 ## 为什么这样分
@@ -65,6 +66,22 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **重连**：`BackendClient` 在非主动关闭时按 `DEFAULT_RECONNECT`（0.5/1/2/4 s，最多 5 次）重连并重新 `session.start`；成功后经 `offscreen.reconnected` 通知 SW 更新 sessionId 并让 content script 重挂字幕层；失败则走原 `offscreen.disconnected` → 停止会话。
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
+
+## 翻译流（Phase 3）
+
+```
+Segmenter → AsrTranscript ─▶ TranslationPipeline.onTranscript()
+                               ├─ 立即转发原文（pipeline 自己编号 revision）
+                               ├─ final → finalQueue（最多 3 个，旧的出队放弃）
+                               ├─ partial（开关开启时）→ 每段 ≥2 s 一次，final 到来即作废
+                               └─ 一次只跑一个 translate()；完成 → 同 segmentId、revision+1、带 translatedText
+Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异步、llama.cpp 自己的线程）→ 去掉反引号/引号
+```
+
+- **协议 v3**：`session.start.options.translatePartials`；`session.ready.translation{provider,targetLanguage}`；`session.metrics` 增加 `translated / avgTranslateMs / translationBacklog`；错误码 `translation_unavailable / translation_failed / unsupported_language`。
+- **为什么不用 worker**：node-llama-cpp 的推理在原生线程执行、JS API 为 async，不会阻塞事件循环；模型与 context 全局共享，`HyMt2Runtime.lock` 保证跨会话串行。
+- **失败降级**：翻译连续失败 3 次 → `session.error translation_failed`，会话继续只出原文；ASR 失败才终止会话。
+- **模型选择**：官方 2-bit/1.25-bit GGUF 需要 llama.cpp PR #19357 的 STQ kernel（未合入），实测在 node-llama-cpp 3.21 上加载失败，故用 Q4_K_M。
 
 ## 设置流（Phase 1）
 

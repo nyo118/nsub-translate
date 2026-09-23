@@ -3,11 +3,22 @@ import type { SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
 import { Session } from './session.js';
 import { MockAsrAdapter } from './asr/mock-adapter.js';
 import type { AsrAdapter, AsrAdapterEvents } from './asr/types.js';
+import { MockTranslationAdapter } from './translation/mock-adapter.js';
 
-function make(adapter: AsrAdapter = new MockAsrAdapter(100), metricsIntervalMs = 0) {
+function make(adapter: AsrAdapter = new MockAsrAdapter(100), metricsIntervalMs = 0, translatePartials = false) {
   const sent: Array<TranscriptMessage | SessionMetricsMessage> = [];
   const errors: string[] = [];
-  const session = new Session({ sessionId: 's1', sourceLanguage: 'auto', targetLanguage: 'zh-CN', adapter, send: (m) => sent.push(m), onError: (c) => errors.push(c), metricsIntervalMs });
+  const session = new Session({
+    sessionId: 's1',
+    sourceLanguage: 'auto',
+    targetLanguage: 'zh-CN',
+    adapter,
+    translation: new MockTranslationAdapter(30),
+    translatePartials,
+    send: (m) => sent.push(m),
+    onError: (c) => errors.push(c),
+    metricsIntervalMs,
+  });
   return { session, sent, errors };
 }
 
@@ -19,11 +30,28 @@ describe('Session', () => {
     const { session, sent } = make();
     const info = await session.start();
     expect(info).toEqual({ provider: 'mock', language: 'auto' });
+    expect(session.translationInfo).toEqual({ provider: 'mock', targetLanguage: 'zh-CN' });
     expect(session.state).toBe('running');
     vi.advanceTimersByTime(250);
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ type: 'transcript', sessionId: 's1', segmentId: 'seg-001', revision: 0, status: 'partial' });
     expect((sent[0] as TranscriptMessage).translatedText).toBeUndefined();
+    await session.stop();
+  });
+
+  it('appends translations to finals as a later revision of the same segment', async () => {
+    const { session, sent } = make();
+    await session.start();
+    // Mock script: two partials then a final for seg-001 (100 ms each), translation takes 30 ms.
+    await vi.advanceTimersByTimeAsync(300 + 50);
+    const seg = sent.filter((m): m is TranscriptMessage => m.type === 'transcript' && m.segmentId === 'seg-001');
+    const finals = seg.filter((m) => m.status === 'final');
+    expect(finals).toHaveLength(2);
+    expect(finals[0]!.translatedText).toBeUndefined();
+    expect(finals[1]!.translatedText).toBe('[zh-CN] Welcome to the live subtitle demo.');
+    expect(finals[1]!.revision).toBeGreaterThan(finals[0]!.revision);
+    expect(session.metrics()).toMatchObject({ translated: 1, translationBacklog: 0 });
+    expect(session.metrics().avgTranslateMs).toBeGreaterThanOrEqual(30);
     await session.stop();
   });
 
@@ -45,10 +73,10 @@ describe('Session', () => {
     await session.start();
     session.pushAudio(new Int16Array(16000)); // 1 s
     session.pushAudio(new Int16Array(8000)); // 0.5 s
-    vi.advanceTimersByTime(1000);
+    await vi.advanceTimersByTimeAsync(1000); // async so mock translations (setTimeout + promises) complete
     const metrics = sent.filter((m): m is SessionMetricsMessage => m.type === 'session.metrics');
     expect(metrics).toHaveLength(1);
-    expect(metrics[0]).toMatchObject({ sessionId: 's1', audioSeconds: 1.5, avgDecodeMs: 1, avgLatencyMs: 100 });
+    expect(metrics[0]).toMatchObject({ sessionId: 's1', audioSeconds: 1.5, avgDecodeMs: 1, avgLatencyMs: 100, translationBacklog: 0 });
     expect(metrics[0]!.partials + metrics[0]!.finals).toBeGreaterThan(0);
     await session.stop();
     expect(vi.getTimerCount()).toBe(0);

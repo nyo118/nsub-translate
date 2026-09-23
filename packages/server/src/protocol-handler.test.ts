@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
 import { ConnectionHandler } from './protocol-handler.js';
 import { createMockFactory } from './asr/mock-adapter.js';
+import { createMockTranslationFactory } from './translation/mock-adapter.js';
 
 const log = { info: () => {}, warn: () => {} };
-const START = JSON.stringify({ type: 'session.start', protocolVersion: 2, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const START = JSON.stringify({ type: 'session.start', protocolVersion: 3, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const READY = { type: 'session.ready', sessionId: 'sid-1', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
 
 function make() {
   const sent: ServerMessage[] = [];
-  const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), log, newSessionId: () => 'sid-1', metricsIntervalMs: 0 });
+  const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: createMockTranslationFactory(10), log, newSessionId: () => 'sid-1', metricsIntervalMs: 0 });
   return { sent, handler };
 }
 
@@ -34,7 +36,7 @@ describe('ConnectionHandler', () => {
     const { sent, handler } = make();
     handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 99, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT }));
     expect(sent[0]).toMatchObject({ type: 'session.error', code: 'unsupported_protocol_version' });
-    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 2, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
+    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 3, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
     expect(sent[1]).toMatchObject({ type: 'session.error', code: 'unsupported_audio_format' });
   });
 
@@ -42,7 +44,7 @@ describe('ConnectionHandler', () => {
     const { sent, handler } = make();
     handler.handleFrame(START);
     await settle();
-    expect(sent[0]).toEqual({ type: 'session.ready', sessionId: 'sid-1', asr: { provider: 'mock', language: 'en' } });
+    expect(sent[0]).toEqual(READY);
     expect(handler.activeSessionId).toBe('sid-1');
 
     vi.advanceTimersByTime(50 * 3);
@@ -89,11 +91,25 @@ describe('ConnectionHandler', () => {
     await handler.dispose('test');
   });
 
+  it('rejects a target language the translator does not support', () => {
+    const sent: ServerMessage[] = [];
+    const handler = new ConnectionHandler({
+      send: (m) => sent.push(m),
+      asr: createMockFactory(50),
+      translation: { provider: 't', prepare: async () => {}, create: () => ({ provider: 't', supportsTarget: (l) => l === 'en', translate: async () => '', dispose: async () => {} }) },
+      log,
+    });
+    handler.handleFrame(START);
+    expect(sent[0]).toMatchObject({ type: 'session.error', code: 'unsupported_language' });
+    expect(handler.activeSessionId).toBeNull();
+  });
+
   it('reports asr_unavailable when the adapter cannot start', async () => {
     const sent: ServerMessage[] = [];
     const handler = new ConnectionHandler({
       send: (m) => sent.push(m),
       asr: { provider: 'broken', prepare: async () => {}, create: () => ({ provider: 'broken', on: () => {}, start: async () => { throw new Error('model missing'); }, pushAudio: () => {}, stop: async () => {} }) },
+      translation: createMockTranslationFactory(10),
       log,
     });
     handler.handleFrame(START);
@@ -121,7 +137,7 @@ describe('ConnectionHandler', () => {
 
   it('turns an unexpected exception into session.error internal_error instead of throwing', () => {
     const sent: ServerMessage[] = [];
-    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), log, newSessionId: () => { throw new Error('boom'); } });
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: createMockTranslationFactory(10), log, newSessionId: () => { throw new Error('boom'); } });
     expect(() => handler.handleFrame(START)).not.toThrow();
     expect(sent).toEqual([{ type: 'session.error', code: 'internal_error', message: 'boom' }]);
     expect(handler.activeSessionId).toBeNull();

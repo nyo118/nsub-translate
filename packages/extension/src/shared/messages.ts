@@ -1,4 +1,4 @@
-import type { AsrInfo, SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
+import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from './platform.js';
 
 /**
@@ -26,6 +26,9 @@ export interface SessionSnapshot {
   transcriptCount: number;
   /** Recognizer in use for the active session. */
   asr?: AsrInfo;
+  /** Translator in use for the active session. */
+  translation?: TranslationInfo;
+  translatePartials?: boolean;
   /** Latest latency statistics from the backend. */
   metrics?: SessionMetricsMessage;
   /** Backend connection state while active: connected, or reconnecting after a drop. */
@@ -57,7 +60,7 @@ export type OffscreenToBackground =
   | { target: 'background'; type: 'offscreen.level'; level: number }
   | { target: 'background'; type: 'offscreen.metrics'; metrics: SessionMetricsMessage }
   | { target: 'background'; type: 'offscreen.reconnecting'; attempt: number }
-  | { target: 'background'; type: 'offscreen.reconnected'; sessionId: string; asr: AsrInfo }
+  | { target: 'background'; type: 'offscreen.reconnected'; sessionId: string; asr: AsrInfo; translation: TranslationInfo }
   | { target: 'background'; type: 'offscreen.disconnected'; reason: string };
 
 export type ToBackground = PopupToBackground | ContentToBackground | OffscreenToBackground;
@@ -70,6 +73,7 @@ export interface OffscreenStartRequest {
   backendUrl: string;
   sourceLanguage: string;
   targetLanguage: string;
+  translatePartials: boolean;
 }
 export interface OffscreenStopRequest {
   target: 'offscreen';
@@ -86,7 +90,7 @@ export interface ReleasedResources {
   audioContextState: string;
   webSocketState: string;
 }
-export type OffscreenStartResponse = { ok: true; sessionId: string; asr: AsrInfo } | { ok: false; error: string };
+export type OffscreenStartResponse = { ok: true; sessionId: string; asr: AsrInfo; translation: TranslationInfo } | { ok: false; error: string };
 export type OffscreenStopResponse = { ok: true; released: ReleasedResources };
 export type OffscreenPingResponse = { ok: true; capturing: boolean; sessionId: string | null };
 

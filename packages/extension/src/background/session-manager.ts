@@ -1,4 +1,4 @@
-import type { AsrInfo, SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
+import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from '../shared/platform.js';
 import type { ReleasedResources, SessionSnapshot, SessionStatus } from '../shared/messages.js';
 
@@ -16,6 +16,8 @@ export interface PersistedSession {
   sourceLanguage?: string;
   targetLanguage?: string;
   asr?: AsrInfo;
+  translation?: TranslationInfo;
+  translatePartials?: boolean;
   lastError?: string;
 }
 
@@ -27,7 +29,7 @@ export interface PersistedSession {
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
   /** Current user settings; read at start time so later changes never touch a running session. */
-  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string }>;
+  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -37,7 +39,7 @@ export interface SessionPorts {
   ensureOffscreen(): Promise<void>;
   hasOffscreen(): Promise<boolean>;
   closeOffscreen(): Promise<void>;
-  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo } | { ok: false; error: string }>;
+  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
   notifyContent(tabId: number, message: { type: 'content.sessionStarted'; sessionId: string } | { type: 'content.transcript'; transcript: TranscriptMessage } | { type: 'content.sessionStopped' }): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
@@ -104,6 +106,8 @@ export class SessionManager {
     if (state.targetLanguage !== undefined) snap.targetLanguage = state.targetLanguage;
     if (state.lastError !== undefined) snap.lastError = state.lastError;
     if (state.asr !== undefined) snap.asr = state.asr;
+    if (state.translation !== undefined) snap.translation = state.translation;
+    if (state.translatePartials !== undefined) snap.translatePartials = state.translatePartials;
     if (state.status === 'active') {
       if (this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
       if (this.metrics !== undefined) snap.metrics = this.metrics;
@@ -178,6 +182,7 @@ export class SessionManager {
           startedAt: Date.now(),
           ...languages,
           ...(result.asr === undefined ? {} : { asr: result.asr }),
+          ...(result.translation === undefined ? {} : { translation: result.translation }),
         });
         await this.ports.notifyContent(tabId, { type: 'content.sessionStarted', sessionId: result.sessionId }).catch((err: unknown) => {
           this.ports.log('warn', 'content script did not acknowledge sessionStarted', String(err));
@@ -257,12 +262,12 @@ export class SessionManager {
   }
 
   /** The offscreen document re-established the backend session under a new id. */
-  async onReconnected(sessionId: string, asr: AsrInfo): Promise<void> {
+  async onReconnected(sessionId: string, asr: AsrInfo, translation?: TranslationInfo): Promise<void> {
     const current = await this.getState();
     if (current.status !== 'active') return;
     this.connection = 'connected';
     this.metrics = undefined;
-    await this.setState({ ...current, sessionId, asr });
+    await this.setState({ ...current, sessionId, asr, ...(translation === undefined ? {} : { translation }) });
     if (current.tabId !== undefined) {
       await this.ports.notifyContent(current.tabId, { type: 'content.sessionStarted', sessionId }).catch(() => undefined);
     }

@@ -55,9 +55,9 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
         log('reconnecting to backend', attempt);
         toBackground({ target: 'background', type: 'offscreen.reconnecting', attempt });
       },
-      onReconnected: (sessionId, asr) => {
+      onReconnected: (sessionId, asr, translation) => {
         log('reconnected; new session', sessionId);
-        toBackground({ target: 'background', type: 'offscreen.reconnected', sessionId, asr });
+        toBackground({ target: 'background', type: 'offscreen.reconnected', sessionId, asr, translation });
       },
       onInvalid: (error) => console.warn('[LST/offscreen] invalid backend message', error),
     },
@@ -79,7 +79,7 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     log('tab audio captured', { tracks: localCapture.stream.getAudioTracks().length, audioContext: localCapture.context.state });
     const sessionId = await localClient.connect(
       req.backendUrl,
-      { sourceLanguage: req.sourceLanguage, targetLanguage: req.targetLanguage },
+      { sourceLanguage: req.sourceLanguage, targetLanguage: req.targetLanguage, options: { translatePartials: req.translatePartials } },
       SESSION_READY_TIMEOUT_MS,
     );
     capture = localCapture;
@@ -87,8 +87,13 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     levelTimer = setInterval(() => {
       if (capture !== null) toBackground({ target: 'background', type: 'offscreen.level', level: capture.level() });
     }, LEVEL_INTERVAL_MS);
-    log('session ready', { sessionId, asr: localClient.asr });
-    return { ok: true, sessionId, asr: localClient.asr ?? { provider: 'unknown', language: req.sourceLanguage } };
+    log('session ready', { sessionId, asr: localClient.asr, translation: localClient.translation });
+    return {
+      ok: true,
+      sessionId,
+      asr: localClient.asr ?? { provider: 'unknown', language: req.sourceLanguage },
+      translation: localClient.translation ?? { provider: 'unknown', targetLanguage: req.targetLanguage },
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log('start failed, releasing', message);
