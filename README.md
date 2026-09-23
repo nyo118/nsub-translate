@@ -70,7 +70,7 @@ npm run build
 1. 打开 `chrome://extensions`。
 2. 右上角打开 **Developer mode**。
 3. 点 **Load unpacked**，选择 `packages/extension/dist` 目录。
-4. 工具栏出现绿色方块图标「Live Subtitle Translator (Phase 0)」。建议点拼图图标把它固定到工具栏。
+4. 工具栏出现红底「N 文」图标「Live Subtitle Translator (Phase 0)」。建议点拼图图标把它固定到工具栏。
 5. 之后每次重新 `npm run build`，需要在 `chrome://extensions` 点该扩展的 **刷新** 按钮，并**刷新已打开的 YouTube 页面**（旧页面里的 content script 会失效）。
 
 ## 如何人工测试 Phase 0
@@ -92,7 +92,6 @@ npm run build
 - 捕获期间 popup 必须先被点开（这是 Chrome `tabCapture` 的「扩展需先被用户调用」限制）。
 - YouTube 站内切换视频（SPA 导航）时只保证不报错并尽量重挂字幕层；完整重绑定在 Phase 1。
 - Twitch 只做页面/播放器检测，音频捕获兼容性留到 Phase 4。
-- 扩展图标是占位纯色方块。
 - 页面在扩展安装/重载之前就已打开时，content script 不存在，popup 会提示 `reload page`。
 - 后端只绑定 127.0.0.1、无鉴权；不要改为对外监听。
 
