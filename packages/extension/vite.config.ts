@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
  *   - background.js   (service worker, "type": "module" in manifest)
  *   - popup.html      (React popup)
  *   - offscreen.html  (audio capture + backend WebSocket)
+ *   - pcm-worklet.js  (AudioWorklet: 16 kHz PCM16 for the ASR backend; must stay import-free)
  * The content script is built separately (see vite.content.config.ts)
  * because MV3 content scripts cannot be ES modules.
  */
@@ -28,6 +29,7 @@ export default defineConfig({
         background: fileURLToPath(new URL('./src/background/service-worker.ts', import.meta.url)),
         popup: fileURLToPath(new URL('./popup.html', import.meta.url)),
         offscreen: fileURLToPath(new URL('./offscreen.html', import.meta.url)),
+        'pcm-worklet': fileURLToPath(new URL('./src/offscreen/pcm-worklet.ts', import.meta.url)),
       },
       output: {
         entryFileNames: '[name].js',

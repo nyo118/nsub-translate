@@ -63,6 +63,34 @@
 | P1-8 | Twitch 频道页开始会话，再切换到另一个频道 | 提示层跟随播放器，无 Console 报错 |
 | P1-9 | 恢复默认 | 所有控件回到默认值，视频字幕样式同步恢复 |
 
+## Phase 2 增补
+
+### 自动化
+| 层 | 覆盖 |
+|---|---|
+| 协议 v2 | `audio` 格式校验、二进制帧校验（空/奇数长度/超大/未对齐）、`session.ready.asr`、`session.metrics` |
+| Segmenter（纯逻辑，假 VAD/识别器） | partial 递增与 final 同 segmentId；pre-roll；节流与去重；多句；flush；超长强制切分；背压跳过 partial；metrics |
+| Session | 转发 transcript、metrics 聚合、stop 后不再转发、adapter 错误上抛 |
+| ConnectionHandler | v2 start / 版本与音频格式错误码 / 二进制音频只在 running 时接受 / `asr_unavailable` |
+| 后端集成（mock） | 真实 WebSocket + 二进制帧 |
+| **真实模型集成** | `sherpa.integration.test.ts`：把 en.wav 以 100 ms 帧灌入 worker 管线，断言 partial → final、语种 en、背压下 15 s 内完成（模型缺失时自动 skip） |
+| 扩展 | `Downsampler`/`ChunkAssembler`（48k→16k 数量与频率保持、int16 钳制、分块）；`BackendClient` v2 握手、二进制发送与丢帧计数、重连退避/放弃/取消；SessionManager metrics/重连状态 |
+| E2E | webServer 以 `ASR_PROVIDER=mock` 启动；握手测试发送一帧二进制音频 |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| P2-1 | `npm run dev:server`（默认 sensevoice） | 日志 `SenseVoice model loaded`，`/healthz` 的 `asrProvider` 为 `sensevoice` |
+| P2-2 | 英文 YouTube 视频（清晰人声）开始字幕 | 约 1 s 内出现斜体 partial 并逐渐变长，停顿后变加粗 final，内容与语音基本一致 |
+| P2-3 | 日文 / 中文视频，来源设为 Auto Detect | 识别为对应语言文字；popup 显示「自动检测」 |
+| P2-4 | 来源选 `日本語 (ja)` | popup 显示「识别：SenseVoice · ja」，后端日志 `asr.language: ja` |
+| P2-5 | popup 延迟显示 | 「延迟 ≈ x s」出现并在 0.5–2 s 之间 |
+| P2-6 | 会话中重启后端（Ctrl-C 后再启动，10 s 内） | popup 显示「正在重新连接本地后端…」，后端起来后字幕恢复，sessionId 变化，无需手动 Stop |
+| P2-7 | 会话中关闭后端不再启动 | 约 8 s 后 popup 报错 `Backend connection lost`，状态回 Ready，无残留 Offscreen |
+| P2-8 | 停止后端时打开 Activity Monitor 看 node 进程 CPU | 会话中 2 线程约 50–150 %，停止后回落 |
+| P2-9 | 视频暂停 | 无 partial 产生，CPU 回落（VAD 无语音） |
+| P2-10 | `ASR_PROVIDER=mock npm run dev:server` | 行为与 Phase 1 相同（固定脚本） |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

@@ -17,7 +17,14 @@ export interface AudioCaptureHandle {
   release(): Promise<{ tracksStopped: number; audioContextState: string }>;
 }
 
-export async function startTabAudioCapture(streamId: string, onEnded: (reason: string) => void): Promise<AudioCaptureHandle> {
+export interface AudioCaptureOptions {
+  /** Receives 16 kHz mono PCM16 frames (100 ms each) from the AudioWorklet. */
+  onPcm?: (frame: ArrayBuffer) => void;
+  /** URL of the worklet module (chrome.runtime.getURL('pcm-worklet.js')). */
+  workletUrl?: string;
+}
+
+export async function startTabAudioCapture(streamId: string, onEnded: (reason: string) => void, options: AudioCaptureOptions = {}): Promise<AudioCaptureHandle> {
   // Chrome-specific constraints; not in the standard TS lib typings.
   const constraints = {
     audio: {
@@ -31,15 +38,33 @@ export async function startTabAudioCapture(streamId: string, onEnded: (reason: s
 
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   const context = new AudioContext();
+  let released = false;
   const source = context.createMediaStreamSource(stream);
   const analyser = context.createAnalyser();
   analyser.fftSize = 1024;
   source.connect(analyser);
   source.connect(context.destination); // keep the tab audible
+
+  // ASR feed: source → worklet (mono, 16 kHz PCM16) → silent gain → destination.
+  // The zero-gain connection keeps the worklet in the rendering graph.
+  let worklet: AudioWorkletNode | null = null;
+  let mute: GainNode | null = null;
+  if (options.onPcm && options.workletUrl) {
+    await context.audioWorklet.addModule(options.workletUrl);
+    worklet = new AudioWorkletNode(context, 'lst-pcm', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+    mute = context.createGain();
+    mute.gain.value = 0;
+    source.connect(worklet);
+    worklet.connect(mute);
+    mute.connect(context.destination);
+    const onPcm = options.onPcm;
+    worklet.port.onmessage = (ev: MessageEvent<ArrayBuffer>) => {
+      if (!released) onPcm(ev.data);
+    };
+  }
   if (context.state === 'suspended') await context.resume();
 
   const buffer = new Uint8Array(analyser.fftSize);
-  let released = false;
 
   for (const track of stream.getAudioTracks()) {
     track.addEventListener('ended', () => {
@@ -66,8 +91,12 @@ export async function startTabAudioCapture(streamId: string, onEnded: (reason: s
       const tracks = stream.getTracks();
       for (const track of tracks) track.stop();
       try {
+        worklet?.port.postMessage('stop');
+        worklet?.port.close();
         source.disconnect();
         analyser.disconnect();
+        worklet?.disconnect();
+        mute?.disconnect();
       } catch {
         /* already disconnected */
       }

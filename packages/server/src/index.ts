@@ -1,8 +1,15 @@
+import type { FastifyInstance } from 'fastify';
 import { loadConfig } from './config.js';
 import { startServer } from './app.js';
 
-const config = loadConfig();
-const app = await startServer(config);
+let app: FastifyInstance;
+try {
+  const config = loadConfig();
+  app = await startServer(config);
+} catch (err) {
+  console.error(`\n[lst-server] failed to start:\n${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+}
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

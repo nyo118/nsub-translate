@@ -1,4 +1,4 @@
-import type { TranscriptMessage } from '@lst/protocol';
+import type { AsrInfo, SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
 import type { Platform } from './platform.js';
 
 /**
@@ -24,6 +24,12 @@ export interface SessionSnapshot {
   /** 0..1 RMS audio level from the offscreen analyser; undefined when not capturing. */
   audioLevel?: number;
   transcriptCount: number;
+  /** Recognizer in use for the active session. */
+  asr?: AsrInfo;
+  /** Latest latency statistics from the backend. */
+  metrics?: SessionMetricsMessage;
+  /** Backend connection state while active: connected, or reconnecting after a drop. */
+  connection?: 'connected' | 'reconnecting';
 }
 
 // ---- Popup -> Background --------------------------------------------------
@@ -49,6 +55,9 @@ export type ContentToBackground = { target: 'background'; type: 'content.hello';
 export type OffscreenToBackground =
   | { target: 'background'; type: 'offscreen.transcript'; transcript: TranscriptMessage }
   | { target: 'background'; type: 'offscreen.level'; level: number }
+  | { target: 'background'; type: 'offscreen.metrics'; metrics: SessionMetricsMessage }
+  | { target: 'background'; type: 'offscreen.reconnecting'; attempt: number }
+  | { target: 'background'; type: 'offscreen.reconnected'; sessionId: string; asr: AsrInfo }
   | { target: 'background'; type: 'offscreen.disconnected'; reason: string };
 
 export type ToBackground = PopupToBackground | ContentToBackground | OffscreenToBackground;
@@ -77,7 +86,7 @@ export interface ReleasedResources {
   audioContextState: string;
   webSocketState: string;
 }
-export type OffscreenStartResponse = { ok: true; sessionId: string } | { ok: false; error: string };
+export type OffscreenStartResponse = { ok: true; sessionId: string; asr: AsrInfo } | { ok: false; error: string };
 export type OffscreenStopResponse = { ok: true; released: ReleasedResources };
 export type OffscreenPingResponse = { ok: true; capturing: boolean; sessionId: string | null };
 

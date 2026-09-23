@@ -1,4 +1,4 @@
-import type { TranscriptMessage } from '@lst/protocol';
+import type { AsrInfo, SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
 import type { Platform } from '../shared/platform.js';
 import type { ReleasedResources, SessionSnapshot, SessionStatus } from '../shared/messages.js';
 
@@ -15,6 +15,7 @@ export interface PersistedSession {
   startedAt?: number;
   sourceLanguage?: string;
   targetLanguage?: string;
+  asr?: AsrInfo;
   lastError?: string;
 }
 
@@ -36,7 +37,7 @@ export interface SessionPorts {
   ensureOffscreen(): Promise<void>;
   hasOffscreen(): Promise<boolean>;
   closeOffscreen(): Promise<void>;
-  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string }): Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
+  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
   notifyContent(tabId: number, message: { type: 'content.sessionStarted'; sessionId: string } | { type: 'content.transcript'; transcript: TranscriptMessage } | { type: 'content.sessionStopped' }): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
@@ -64,6 +65,8 @@ export class SessionManager {
   private inflight: Promise<unknown> | null = null;
   private audioLevel: number | undefined;
   private transcriptCount = 0;
+  private metrics: SessionMetricsMessage | undefined;
+  private connection: 'connected' | 'reconnecting' = 'connected';
 
   constructor(options: SessionManagerOptions) {
     this.ports = options.ports;
@@ -100,7 +103,12 @@ export class SessionManager {
     if (state.sourceLanguage !== undefined) snap.sourceLanguage = state.sourceLanguage;
     if (state.targetLanguage !== undefined) snap.targetLanguage = state.targetLanguage;
     if (state.lastError !== undefined) snap.lastError = state.lastError;
-    if (state.status === 'active' && this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
+    if (state.asr !== undefined) snap.asr = state.asr;
+    if (state.status === 'active') {
+      if (this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
+      if (this.metrics !== undefined) snap.metrics = this.metrics;
+      snap.connection = this.connection;
+    }
     return snap;
   }
 
@@ -160,6 +168,8 @@ export class SessionManager {
 
         this.transcriptCount = 0;
         this.audioLevel = undefined;
+        this.metrics = undefined;
+        this.connection = 'connected';
         await this.setState({
           status: 'active',
           sessionId: result.sessionId,
@@ -167,6 +177,7 @@ export class SessionManager {
           platform: detection.platform,
           startedAt: Date.now(),
           ...languages,
+          ...(result.asr === undefined ? {} : { asr: result.asr }),
         });
         await this.ports.notifyContent(tabId, { type: 'content.sessionStarted', sessionId: result.sessionId }).catch((err: unknown) => {
           this.ports.log('warn', 'content script did not acknowledge sessionStarted', String(err));
@@ -235,6 +246,27 @@ export class SessionManager {
 
   onAudioLevel(level: number): void {
     this.audioLevel = level;
+  }
+
+  onMetrics(metrics: SessionMetricsMessage): void {
+    this.metrics = metrics;
+  }
+
+  onReconnecting(): void {
+    this.connection = 'reconnecting';
+  }
+
+  /** The offscreen document re-established the backend session under a new id. */
+  async onReconnected(sessionId: string, asr: AsrInfo): Promise<void> {
+    const current = await this.getState();
+    if (current.status !== 'active') return;
+    this.connection = 'connected';
+    this.metrics = undefined;
+    await this.setState({ ...current, sessionId, asr });
+    if (current.tabId !== undefined) {
+      await this.ports.notifyContent(current.tabId, { type: 'content.sessionStarted', sessionId }).catch(() => undefined);
+    }
+    this.ports.log('info', 'session reconnected', { sessionId });
   }
 
   /** Does this tab have the active session? Used when a content script (re)loads. */

@@ -41,7 +41,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
     },
     startOffscreen: async () => {
       calls.push('startOffscreen');
-      return { ok: true, sessionId: 'sid-1' };
+      return { ok: true, sessionId: 'sid-1', asr: { provider: 'mock', language: 'auto' } };
     },
     stopOffscreen: async () => {
       calls.push('stopOffscreen');
@@ -222,6 +222,31 @@ describe('SessionManager', () => {
     expect(await restarted.sessionForTab(8)).toEqual({ active: false });
     await restarted.stop();
     expect(world.offscreenOpen.value).toBe(false);
+  });
+
+  it('exposes asr info, metrics and connection state while active; reconnect swaps the session id', async () => {
+    const world = makeWorld();
+    const m = manager(world);
+    await m.start();
+    let snap = await m.snapshot();
+    expect(snap.asr).toEqual({ provider: 'mock', language: 'auto' });
+    expect(snap.connection).toBe('connected');
+    m.onMetrics({ type: 'session.metrics', sessionId: 'sid-1', audioSeconds: 3, partials: 2, finals: 1, avgDecodeMs: 300, avgLatencyMs: 800 });
+    m.onReconnecting();
+    snap = await m.snapshot();
+    expect(snap.metrics?.avgLatencyMs).toBe(800);
+    expect(snap.connection).toBe('reconnecting');
+    await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'ja' });
+    snap = await m.snapshot();
+    expect(snap.sessionId).toBe('sid-2');
+    expect(snap.asr?.language).toBe('ja');
+    expect(snap.connection).toBe('connected');
+    expect(snap.metrics).toBeUndefined();
+    expect(world.contentMessages.filter((c) => c.type === 'content.sessionStarted')).toHaveLength(2);
+    // Transcripts for the new session id are routed; the old id is dropped.
+    await m.onTranscript({ ...transcript, sessionId: 'sid-2' });
+    await m.onTranscript({ ...transcript, sessionId: 'sid-1' });
+    expect((await m.snapshot()).transcriptCount).toBe(1);
   });
 
   it('stop on an idle manager still closes a leftover offscreen document', async () => {

@@ -1,4 +1,4 @@
-import { BackendClient } from './backend-client.js';
+import { BackendClient, DEFAULT_RECONNECT } from './backend-client.js';
 import { startTabAudioCapture, type AudioCaptureHandle } from './audio-capture.js';
 import { SESSION_READY_TIMEOUT_MS, SESSION_STOP_TIMEOUT_MS } from '../shared/config.js';
 import {
@@ -40,21 +40,42 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     return { ok: false, error: 'Offscreen document is already capturing. Stop the current session first.' };
   }
   let localCapture: AudioCaptureHandle | null = null;
-  const localClient = new BackendClient({
-    onMessage: (message) => {
-      if (message.type === 'transcript') toBackground({ target: 'background', type: 'offscreen.transcript', transcript: message });
-      else if (message.type === 'session.error') log('backend error', message);
+  const localClient = new BackendClient(
+    {
+      onMessage: (message) => {
+        if (message.type === 'transcript') toBackground({ target: 'background', type: 'offscreen.transcript', transcript: message });
+        else if (message.type === 'session.metrics') toBackground({ target: 'background', type: 'offscreen.metrics', metrics: message });
+        else if (message.type === 'session.error') log('backend error', message);
+      },
+      onClose: (reason) => {
+        log('backend connection closed', reason);
+        toBackground({ target: 'background', type: 'offscreen.disconnected', reason });
+      },
+      onReconnecting: (attempt) => {
+        log('reconnecting to backend', attempt);
+        toBackground({ target: 'background', type: 'offscreen.reconnecting', attempt });
+      },
+      onReconnected: (sessionId, asr) => {
+        log('reconnected; new session', sessionId);
+        toBackground({ target: 'background', type: 'offscreen.reconnected', sessionId, asr });
+      },
+      onInvalid: (error) => console.warn('[LST/offscreen] invalid backend message', error),
     },
-    onClose: (reason) => {
-      log('backend connection closed unexpectedly', reason);
-      toBackground({ target: 'background', type: 'offscreen.disconnected', reason });
-    },
-    onInvalid: (error) => console.warn('[LST/offscreen] invalid backend message', error),
-  });
+    undefined,
+    DEFAULT_RECONNECT,
+  );
   try {
-    localCapture = await startTabAudioCapture(req.streamId, (reason) => {
-      toBackground({ target: 'background', type: 'offscreen.disconnected', reason });
-    });
+    localCapture = await startTabAudioCapture(
+      req.streamId,
+      (reason) => {
+        toBackground({ target: 'background', type: 'offscreen.disconnected', reason });
+      },
+      {
+        workletUrl: chrome.runtime.getURL('pcm-worklet.js'),
+        // Audio frames go straight to the backend; while (re)connecting they are dropped and counted.
+        onPcm: (frame) => localClient.sendAudio(frame),
+      },
+    );
     log('tab audio captured', { tracks: localCapture.stream.getAudioTracks().length, audioContext: localCapture.context.state });
     const sessionId = await localClient.connect(
       req.backendUrl,
@@ -66,8 +87,8 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     levelTimer = setInterval(() => {
       if (capture !== null) toBackground({ target: 'background', type: 'offscreen.level', level: capture.level() });
     }, LEVEL_INTERVAL_MS);
-    log('session ready', sessionId);
-    return { ok: true, sessionId };
+    log('session ready', { sessionId, asr: localClient.asr });
+    return { ok: true, sessionId, asr: localClient.asr ?? { provider: 'unknown', language: req.sourceLanguage } };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log('start failed, releasing', message);
@@ -101,7 +122,7 @@ function stop(): Promise<OffscreenStopResponse> {
       audioContextState = r.audioContextState;
     }
     const released = { tracksStopped, audioContextState, webSocketState };
-    log('released', released);
+    log('released', { ...released, audio: localClient?.stats });
     return { ok: true as const, released };
   })().finally(() => {
     stopping = null;

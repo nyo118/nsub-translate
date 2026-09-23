@@ -1,7 +1,9 @@
 import {
+  AUDIO_FORMAT,
   PROTOCOL_VERSION,
   parseJsonObject,
   validateServerMessage,
+  type AsrInfo,
   type ClientMessage,
   type ServerMessage,
 } from '@lst/protocol';
@@ -9,7 +11,8 @@ import {
 /** Minimal WebSocket shape so the client can be unit-tested with a fake. */
 export interface SocketLike {
   readonly readyState: number;
-  send(data: string): void;
+  binaryType?: string;
+  send(data: string | ArrayBuffer): void;
   close(code?: number, reason?: string): void;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
@@ -21,12 +24,24 @@ export type SocketFactory = (url: string) => SocketLike;
 
 export interface BackendClientEvents {
   onMessage: (message: ServerMessage) => void;
-  /** Fired once, when the socket closes for any reason after having been opened. */
+  /** Fired once, when the socket closes for any reason after having been opened and reconnection is not attempted or has failed. */
   onClose: (reason: string) => void;
   onInvalid?: (error: string) => void;
+  /** Reconnection lifecycle (only when `reconnect` is configured). */
+  onReconnecting?: (attempt: number) => void;
+  onReconnected?: (sessionId: string, asr: AsrInfo) => void;
 }
 
+export interface ReconnectPolicy {
+  maxAttempts: number;
+  /** Delays per attempt in ms; the last value repeats. */
+  delaysMs: number[];
+}
+
+export const DEFAULT_RECONNECT: ReconnectPolicy = { maxAttempts: 5, delaysMs: [500, 1000, 2000, 4000] };
+
 const OPEN = 1;
+const CONNECT_TIMEOUT_MS = 5000;
 
 /**
  * One backend connection == one protocol session. `connect()` resolves once
@@ -36,18 +51,46 @@ const OPEN = 1;
 export class BackendClient {
   private socket: SocketLike | null = null;
   private _sessionId: string | null = null;
+  private _asr: AsrInfo | null = null;
   private closedByUs = false;
   private readonly factory: SocketFactory;
   private readonly events: BackendClientEvents;
+  private readonly reconnect: ReconnectPolicy | null;
   private stoppedResolver: (() => void) | null = null;
+  private lastConnect: { url: string; languages: { sourceLanguage: string; targetLanguage: string } } | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnecting = false;
+  private audioFramesSent = 0;
+  private audioFramesDropped = 0;
 
-  constructor(events: BackendClientEvents, factory: SocketFactory = (url) => new WebSocket(url) as unknown as SocketLike) {
+  constructor(
+    events: BackendClientEvents,
+    factory: SocketFactory = (url) => {
+      const ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+      return ws as unknown as SocketLike;
+    },
+    reconnect: ReconnectPolicy | null = null,
+  ) {
     this.events = events;
     this.factory = factory;
+    this.reconnect = reconnect;
   }
 
   get sessionId(): string | null {
     return this._sessionId;
+  }
+
+  get asr(): AsrInfo | null {
+    return this._asr;
+  }
+
+  get isReconnecting(): boolean {
+    return this.reconnecting;
+  }
+
+  get stats(): { audioFramesSent: number; audioFramesDropped: number } {
+    return { audioFramesSent: this.audioFramesSent, audioFramesDropped: this.audioFramesDropped };
   }
 
   get state(): string {
@@ -57,6 +100,12 @@ export class BackendClient {
 
   connect(url: string, languages: { sourceLanguage: string; targetLanguage: string }, timeoutMs: number): Promise<string> {
     if (this.socket !== null) return Promise.reject(new Error('already connected'));
+    this.lastConnect = { url, languages };
+    this.closedByUs = false;
+    return this.open(url, languages, timeoutMs);
+  }
+
+  private open(url: string, languages: { sourceLanguage: string; targetLanguage: string }, timeoutMs: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       let settled = false;
       const socket = this.factory(url);
@@ -70,7 +119,7 @@ export class BackendClient {
       }, timeoutMs);
 
       socket.onopen = () => {
-        this.send({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, ...languages });
+        this.send({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, ...languages, audio: AUDIO_FORMAT });
       };
       socket.onerror = () => {
         // The close event that follows carries the useful information.
@@ -86,6 +135,7 @@ export class BackendClient {
             settled = true;
             clearTimeout(timer);
             this._sessionId = message.sessionId;
+            this._asr = message.asr;
             resolve(message.sessionId);
           } else if (message.type === 'session.error') {
             settled = true;
@@ -108,9 +158,45 @@ export class BackendClient {
         }
         this.socket = null;
         this._sessionId = null;
-        if (wasSettled && !this.closedByUs) this.events.onClose(ev.reason || `code ${ev.code}`);
+        if (wasSettled && !this.closedByUs) this.handleUnexpectedClose(ev.reason || `code ${ev.code}`);
       };
     });
+  }
+
+  /** Backend dropped mid-session: retry with backoff (if configured), starting a fresh session. */
+  private handleUnexpectedClose(reason: string): void {
+    if (this.reconnect === null || this.lastConnect === null) {
+      this.events.onClose(reason);
+      return;
+    }
+    const { url, languages } = this.lastConnect;
+    const policy = this.reconnect;
+    let attempt = 0;
+    this.reconnecting = true;
+    const tryAgain = () => {
+      if (this.closedByUs) {
+        this.reconnecting = false;
+        return;
+      }
+      attempt += 1;
+      if (attempt > policy.maxAttempts) {
+        this.reconnecting = false;
+        this.events.onClose(`${reason}; reconnect failed after ${policy.maxAttempts} attempts`);
+        return;
+      }
+      this.events.onReconnecting?.(attempt);
+      this.open(url, languages, CONNECT_TIMEOUT_MS).then(
+        (sessionId) => {
+          this.reconnecting = false;
+          this.events.onReconnected?.(sessionId, this._asr ?? { provider: 'unknown', language: languages.sourceLanguage });
+        },
+        () => {
+          const delay = policy.delaysMs[Math.min(attempt - 1, policy.delaysMs.length - 1)] ?? 1000;
+          this.reconnectTimer = setTimeout(tryAgain, delay);
+        },
+      );
+    };
+    tryAgain();
   }
 
   send(message: ClientMessage): boolean {
@@ -119,11 +205,27 @@ export class BackendClient {
     return true;
   }
 
+  /** Send one PCM16 audio frame as a binary WebSocket message. Dropped (counted) while not connected. */
+  sendAudio(pcm: ArrayBuffer): boolean {
+    if (this.socket === null || this.socket.readyState !== OPEN || this._sessionId === null) {
+      this.audioFramesDropped += 1;
+      return false;
+    }
+    this.socket.send(pcm);
+    this.audioFramesSent += 1;
+    return true;
+  }
+
   /** Graceful stop; never throws; resolves when the socket is closed or the timeout elapses. */
   async disconnect(timeoutMs: number): Promise<void> {
+    this.closedByUs = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnecting = false;
     const socket = this.socket;
     if (socket === null) return;
-    this.closedByUs = true;
     const sessionId = this._sessionId;
     if (sessionId !== null && socket.readyState === OPEN) {
       const stopped = new Promise<void>((resolve) => {
@@ -140,6 +242,7 @@ export class BackendClient {
     const socket = this.socket;
     this.socket = null;
     this._sessionId = null;
+    this._asr = null;
     if (socket !== null) {
       try {
         socket.close(1000, 'client stop');

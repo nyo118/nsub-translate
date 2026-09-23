@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
-import { validateServerMessage, type ServerMessage } from '@lst/protocol';
+import { AUDIO_FORMAT, validateServerMessage, type ServerMessage } from '@lst/protocol';
 import { buildApp } from './app.js';
+import { createMockFactory } from './asr/mock-adapter.js';
+
+const START = JSON.stringify({ type: 'session.start', protocolVersion: 2, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
 
 /**
  * Integration test: a real Fastify server on an ephemeral loopback port and
@@ -47,7 +50,7 @@ function closed(ws: WebSocket): Promise<void> {
 }
 
 beforeEach(async () => {
-  app = await buildApp({ tickMs: 20, logger: false });
+  app = await buildApp({ asr: createMockFactory(20), logger: false, metricsIntervalMs: 0 });
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   if (address === null || typeof address === 'string') throw new Error('no address');
@@ -62,15 +65,18 @@ describe('backend websocket', () => {
   it('exposes a health endpoint', async () => {
     const res = await app.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, openConnections: 0 });
+    expect(res.json()).toEqual({ ok: true, openConnections: 0, asrProvider: 'mock' });
   });
 
   it('runs a full session lifecycle: start → ready → transcripts → stop → stopped', async () => {
     const ws = await connect();
     const { messages, next } = collect(ws);
-    ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: 'zh-CN' }));
+    ws.send(START);
     const ready = await next('session.ready');
     if (ready.type !== 'session.ready') throw new Error('unreachable');
+    expect(ready.asr).toEqual({ provider: 'mock', language: 'en' });
+    // Binary audio frames are accepted while running (the mock ignores their content).
+    ws.send(new Uint8Array(3200), { binary: true });
     const first = await next('transcript');
     expect(first).toMatchObject({ type: 'transcript', sessionId: ready.sessionId, segmentId: 'seg-001', revision: 0, status: 'partial' });
 
@@ -87,10 +93,13 @@ describe('backend websocket', () => {
 
   it('responds with session.error to invalid frames and keeps the connection open', async () => {
     const ws = await connect();
-    const { next } = collect(ws);
+    const { next, messages } = collect(ws);
     ws.send('this is not json');
     const err = await next('session.error');
     expect(err).toMatchObject({ type: 'session.error', code: 'invalid_message' });
+    ws.send(new Uint8Array(3), { binary: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(messages.at(-1)).toMatchObject({ type: 'session.error', code: 'invalid_audio' });
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
     await closed(ws);
@@ -99,7 +108,7 @@ describe('backend websocket', () => {
   it('closing the socket stops the session and decrements the connection count', async () => {
     const ws = await connect();
     const { next } = collect(ws);
-    ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: 'zh-CN' }));
+    ws.send(START);
     await next('session.ready');
     expect((await app.inject({ method: 'GET', url: '/healthz' })).json().openConnections).toBe(1);
     ws.close();
@@ -113,9 +122,8 @@ describe('backend websocket', () => {
     const b = await connect();
     const ca = collect(a);
     const cb = collect(b);
-    const start = JSON.stringify({ type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: 'zh-CN' });
-    a.send(start);
-    b.send(start);
+    a.send(START);
+    b.send(START);
     const ra = await ca.next('session.ready');
     const rb = await cb.next('session.ready');
     expect(ra.type === 'session.ready' && rb.type === 'session.ready' && ra.sessionId !== rb.sessionId).toBe(true);

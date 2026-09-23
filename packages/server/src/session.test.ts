@@ -1,59 +1,93 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TranscriptMessage } from '@lst/protocol';
-import { MockSession } from './session.js';
-import type { ScriptEvent } from './mock-script.js';
+import type { SessionMetricsMessage, TranscriptMessage } from '@lst/protocol';
+import { Session } from './session.js';
+import { MockAsrAdapter } from './asr/mock-adapter.js';
+import type { AsrAdapter, AsrAdapterEvents } from './asr/types.js';
 
-const script: ScriptEvent[] = [
-  { type: 'transcript', segmentId: 'a', revision: 0, status: 'partial', startMs: 0, sourceText: 'x' },
-  { type: 'transcript', segmentId: 'a', revision: 1, status: 'final', startMs: 0, endMs: 10, sourceText: 'xy', translatedText: 't' },
-];
+function make(adapter: AsrAdapter = new MockAsrAdapter(100), metricsIntervalMs = 0) {
+  const sent: Array<TranscriptMessage | SessionMetricsMessage> = [];
+  const errors: string[] = [];
+  const session = new Session({ sessionId: 's1', sourceLanguage: 'auto', targetLanguage: 'zh-CN', adapter, send: (m) => sent.push(m), onError: (c) => errors.push(c), metricsIntervalMs });
+  return { session, sent, errors };
+}
 
-describe('MockSession', () => {
+describe('Session', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('emits script events on a timer with the sessionId attached', () => {
-    const emitted: TranscriptMessage[] = [];
-    const session = new MockSession({ sessionId: 's1', sourceLanguage: 'en', targetLanguage: 'zh-CN', tickMs: 100, emit: (m) => emitted.push(m), events: script, loop: false });
-    session.start();
-    expect(emitted).toHaveLength(0);
+  it('starts the adapter, reports asr info and forwards transcripts with the sessionId', async () => {
+    const { session, sent } = make();
+    const info = await session.start();
+    expect(info).toEqual({ provider: 'mock', language: 'auto' });
+    expect(session.state).toBe('running');
+    vi.advanceTimersByTime(250);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ type: 'transcript', sessionId: 's1', segmentId: 'seg-001', revision: 0, status: 'partial' });
+    expect((sent[0] as TranscriptMessage).translatedText).toBeUndefined();
+    await session.stop();
+  });
+
+  it('never forwards after stop() and clears the adapter timer', async () => {
+    const { session, sent } = make();
+    await session.start();
     vi.advanceTimersByTime(100);
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0]).toMatchObject({ sessionId: 's1', segmentId: 'a', revision: 0 });
-    vi.advanceTimersByTime(100);
-    expect(emitted).toHaveLength(2);
-    vi.advanceTimersByTime(1000);
-    expect(emitted).toHaveLength(2);
+    await session.stop();
+    const n = sent.length;
+    vi.advanceTimersByTime(2000);
+    expect(sent).toHaveLength(n);
+    expect(vi.getTimerCount()).toBe(0);
     expect(session.state).toBe('stopped');
+    await session.stop(); // idempotent
   });
 
-  it('never emits after stop()', () => {
-    const emitted: TranscriptMessage[] = [];
-    const session = new MockSession({ sessionId: 's1', sourceLanguage: 'en', targetLanguage: 'zh-CN', tickMs: 100, emit: (m) => emitted.push(m), events: script });
-    session.start();
-    vi.advanceTimersByTime(100);
-    session.stop();
-    vi.advanceTimersByTime(5000);
-    expect(emitted).toHaveLength(1);
+  it('counts audio and aggregates metrics, emitting session.metrics periodically', async () => {
+    const { session, sent } = make(new MockAsrAdapter(100), 1000);
+    await session.start();
+    session.pushAudio(new Int16Array(16000)); // 1 s
+    session.pushAudio(new Int16Array(8000)); // 0.5 s
+    vi.advanceTimersByTime(1000);
+    const metrics = sent.filter((m): m is SessionMetricsMessage => m.type === 'session.metrics');
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]).toMatchObject({ sessionId: 's1', audioSeconds: 1.5, avgDecodeMs: 1, avgLatencyMs: 100 });
+    expect(metrics[0]!.partials + metrics[0]!.finals).toBeGreaterThan(0);
+    await session.stop();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('loops with distinct segment ids so replays are not treated as stale revisions', () => {
-    const emitted: TranscriptMessage[] = [];
-    const session = new MockSession({ sessionId: 's1', sourceLanguage: 'en', targetLanguage: 'zh-CN', tickMs: 10, emit: (m) => emitted.push(m), events: script, loop: true });
-    session.start();
-    vi.advanceTimersByTime(10 * 5);
-    expect(emitted.map((e) => e.segmentId)).toEqual(['a', 'a', 'a-r1', 'a-r1']);
-    session.stop();
+  it('ignores audio before start and after stop', async () => {
+    const adapter = new MockAsrAdapter(100);
+    const push = vi.spyOn(adapter, 'pushAudio');
+    const { session } = make(adapter);
+    session.pushAudio(new Int16Array(10));
+    await session.start();
+    session.pushAudio(new Int16Array(10));
+    await session.stop();
+    session.pushAudio(new Int16Array(10));
+    expect(push).toHaveBeenCalledTimes(1);
   });
 
-  it('start() is idempotent and stop() is idempotent', () => {
-    const session = new MockSession({ sessionId: 's1', sourceLanguage: 'en', targetLanguage: 'zh-CN', tickMs: 10, emit: () => {}, events: script });
-    session.start();
-    session.start();
-    expect(vi.getTimerCount()).toBe(1);
-    session.stop();
-    session.stop();
-    expect(vi.getTimerCount()).toBe(0);
+  it('surfaces adapter errors while running and start failures as rejections', async () => {
+    const handlers: Partial<AsrAdapterEvents> = {};
+    const failing: AsrAdapter = {
+      provider: 'fake',
+      on: (e, l) => {
+        (handlers as Record<string, unknown>)[e] = l;
+      },
+      start: async () => ({ language: 'en' }),
+      pushAudio: () => {},
+      stop: async () => {},
+    };
+    const { session, errors } = make(failing);
+    await session.start();
+    handlers.error?.('asr_failed', 'boom');
+    expect(errors).toEqual(['asr_failed']);
+    await session.stop();
+    handlers.error?.('asr_failed', 'late');
+    expect(errors).toEqual(['asr_failed']);
+
+    const broken: AsrAdapter = { ...failing, start: async () => { throw new Error('no model'); } };
+    const { session: s2 } = make(broken);
+    await expect(s2.start()).rejects.toThrow('no model');
+    expect(s2.state).toBe('stopped');
   });
 });

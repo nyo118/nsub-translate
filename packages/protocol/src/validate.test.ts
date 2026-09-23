@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { PROTOCOL_VERSION, parseJsonObject, validateClientMessage, validateServerMessage } from './index.js';
+import { AUDIO_FORMAT, PROTOCOL_VERSION, parseJsonObject, validateAudioFrame, validateClientMessage, validateServerMessage } from './index.js';
+
+const start = { type: 'session.start', protocolVersion: PROTOCOL_VERSION, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT };
 
 describe('parseJsonObject', () => {
   it('parses a JSON object from a string', () => {
@@ -18,26 +20,24 @@ describe('parseJsonObject', () => {
 
 describe('validateClientMessage', () => {
   it('accepts a valid session.start', () => {
-    const result = validateClientMessage({
-      type: 'session.start',
-      protocolVersion: PROTOCOL_VERSION,
-      sourceLanguage: 'en',
-      targetLanguage: 'zh-CN',
-      extra: 'ignored',
-    });
-    expect(result).toEqual({
-      ok: true,
-      message: { type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: 'zh-CN' },
-    });
+    const result = validateClientMessage({ ...start, extra: 'ignored' });
+    expect(result).toEqual({ ok: true, message: start });
+  });
+  it('requires the v2 audio format', () => {
+    const { audio: _audio, ...noAudio } = start;
+    expect(validateClientMessage(noAudio).ok).toBe(false);
+    expect(validateClientMessage({ ...start, audio: { ...AUDIO_FORMAT, sampleRate: 48000 } }).ok).toBe(false);
+    expect(validateClientMessage({ ...start, audio: { ...AUDIO_FORMAT, encoding: 'opus' } }).ok).toBe(false);
   });
   it('rejects a wrong protocol version', () => {
-    const result = validateClientMessage({ type: 'session.start', protocolVersion: 2, sourceLanguage: 'en', targetLanguage: 'zh' });
+    const result = validateClientMessage({ ...start, protocolVersion: 1 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/protocolVersion/);
   });
   it('rejects missing languages', () => {
-    expect(validateClientMessage({ type: 'session.start', protocolVersion: 1, targetLanguage: 'zh' }).ok).toBe(false);
-    expect(validateClientMessage({ type: 'session.start', protocolVersion: 1, sourceLanguage: 'en', targetLanguage: '' }).ok).toBe(false);
+    const { sourceLanguage: _s, ...noSource } = start;
+    expect(validateClientMessage(noSource).ok).toBe(false);
+    expect(validateClientMessage({ ...start, targetLanguage: '' }).ok).toBe(false);
   });
   it('accepts stop/ping with sessionId and rejects without', () => {
     expect(validateClientMessage({ type: 'session.stop', sessionId: 's1' })).toEqual({ ok: true, message: { type: 'session.stop', sessionId: 's1' } });
@@ -72,8 +72,12 @@ describe('validateServerMessage', () => {
     expect(validateServerMessage({ ...transcript, sourceText: 5 }).ok).toBe(false);
     expect(validateServerMessage({ ...transcript, segmentId: '' }).ok).toBe(false);
   });
-  it('accepts ready/pong/stopped/error', () => {
-    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1' }).ok).toBe(true);
+  it('accepts ready/pong/stopped/error/metrics', () => {
+    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1', asr: { provider: 'mock', language: 'auto' } }).ok).toBe(true);
+    expect(validateServerMessage({ type: 'session.ready', sessionId: 's1' }).ok).toBe(false);
+    const metrics = { type: 'session.metrics', sessionId: 's1', audioSeconds: 12.5, partials: 3, finals: 1, avgDecodeMs: 420, avgLatencyMs: 900 };
+    expect(validateServerMessage(metrics)).toEqual({ ok: true, message: metrics });
+    expect(validateServerMessage({ ...metrics, avgLatencyMs: -1 }).ok).toBe(false);
     expect(validateServerMessage({ type: 'session.pong', sessionId: 's1' }).ok).toBe(true);
     expect(validateServerMessage({ type: 'session.stopped', sessionId: 's1' }).ok).toBe(true);
     expect(validateServerMessage({ type: 'session.error', code: 'invalid_message', message: 'bad' })).toEqual({
@@ -81,5 +85,28 @@ describe('validateServerMessage', () => {
       message: { type: 'session.error', code: 'invalid_message', message: 'bad' },
     });
     expect(validateServerMessage({ type: 'session.error', code: '' }).ok).toBe(false);
+  });
+
+});
+
+describe('validateAudioFrame', () => {
+  it('accepts even-length binary frames and views them as Int16', () => {
+    const bytes = new Uint8Array([0x00, 0x01, 0xff, 0x7f]);
+    const r = validateAudioFrame(bytes);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(Array.from(r.message)).toEqual([256, 32767]);
+  });
+  it('rejects text, empty, odd-length and oversized frames', () => {
+    expect(validateAudioFrame('text').ok).toBe(false);
+    expect(validateAudioFrame(new Uint8Array(0)).ok).toBe(false);
+    expect(validateAudioFrame(new Uint8Array(3)).ok).toBe(false);
+    expect(validateAudioFrame(new Uint8Array(64 * 1024 + 2)).ok).toBe(false);
+  });
+  it('handles unaligned views', () => {
+    const backing = new Uint8Array(5);
+    backing.set([0, 1, 2, 3], 1);
+    const view = new Uint8Array(backing.buffer, 1, 4);
+    const r = validateAudioFrame(view);
+    expect(r.ok && r.message.length).toBe(2);
   });
 });

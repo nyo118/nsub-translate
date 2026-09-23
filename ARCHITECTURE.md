@@ -33,7 +33,8 @@
 | Content Script | `src/content/` | 通过 `PlayerAdapter` 识别播放器容器；`OverlayBinder` 让 Shadow DOM 字幕层跟随导航重挂；按 segmentId/revision 规则更新；订阅设置变更即时改样式；Stop 时移除 | 不改播放器 UI |
 | Settings | `src/shared/settings.ts`、`settings-store.ts` | 设置模型、默认值、`normalizeSettings` 校验/钳制/迁移；`chrome.storage.local` 封装与 `onChanged` 订阅 | 无 UI |
 | Protocol | `packages/protocol/` | 类型 + 手写校验（`validateClientMessage` / `validateServerMessage`） | 无运行时依赖 |
-| Backend | `packages/server/` | `/ws` WebSocket、`/healthz`；每连接一个 `ConnectionHandler` → 至多一个 `MockSession` | 无 ASR/翻译、无持久化 |
+| Backend | `packages/server/` | `/ws` WebSocket、`/healthz`；每连接一个 `ConnectionHandler` → 至多一个 `Session`；`Session` 持有一个 `AsrAdapter`（`sensevoice` 或 `mock`） | 无翻译、无持久化 |
+| ASR | `packages/server/src/asr/` | `AsrAdapter` 接口；`Segmenter`（VAD 分段 + partial/final 状态机，纯逻辑）；`sherpa-worker.ts`（worker 线程内持有原生 VAD/识别器）；`sherpa-adapter.ts`（主线程与 worker 的桥）；`mock-adapter.ts` | 不接触网络 |
 
 ## 为什么这样分
 
@@ -42,6 +43,27 @@
 - **只允许一个 Offscreen Document**（Chrome 限制），`chrome-ports.ts` 先 `runtime.getContexts` 再决定是否 `createDocument`，并用 promise 去重并发创建。
 - **Content Script 必须是单文件 IIFE**（MV3 不允许 content script 为 ES module），所以 `vite.content.config.ts` 用 lib 模式单独打包；其余入口（SW / popup / offscreen）走 `vite.config.ts` 多入口 ESM。
 - **浏览器 API 与业务逻辑分离**：`session-manager.ts` 只依赖 `SessionPorts` 接口，可在 Node 里用假实现完整测试 start/stop/重启/tab 关闭等路径；`chrome-ports.ts` 是唯一调用 `chrome.tabCapture` / `chrome.offscreen` 的地方。
+
+## 音频与识别流（Phase 2）
+
+```
+Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道、降采样 16 kHz、PCM16、100 ms 一帧）
+        ─▶ BackendClient.sendAudio()  ── 二进制 WebSocket 帧 ──▶ Backend ConnectionHandler.handleAudio()
+        ─▶ Session.pushAudio() ─▶ SherpaAsrAdapter（主线程）──postMessage(transfer)──▶ sherpa-worker（worker 线程）
+                                                                                        │ Segmenter
+                                                                                        │  ├─ Silero VAD 512 样本窗
+                                                                                        │  ├─ 说话中每 ≥0.6 s：解码「本句至今」→ partial(revision++)
+                                                                                        │  └─ VAD 收尾 / 超 12 s：解码整句 → final
+                                                                                        ▼
+                                                                    transcript / metrics ──▶ Session ──▶ 扩展（沿 Phase 0 路径到字幕层）
+```
+
+- **协议 v2**：`session.start` 带 `audio:{pcm_s16le,16000,1}`；音频走二进制帧，控制消息走文本帧；`session.ready.asr{provider,language}`；新增 `session.metrics{audioSeconds,partials,finals,avgDecodeMs,avgLatencyMs}`；错误码新增 `invalid_audio / unsupported_audio_format / asr_unavailable / asr_failed`。
+- **为什么用 worker 线程**：sherpa-onnx 的解码是同步 CPU 计算（0.2–1.5 s），放主线程会卡住 WebSocket 与心跳。N-API 插件可在 worker 中加载（已实测）。开发态（tsx）worker 通过一段 eval 引导脚本注册 tsx loader 再加载 `.ts`；打包后直接加载 `.js`。
+- **背压**：每个音频消息带 `sentAt`；worker 处理时若滞后 > 700 ms 则 `Segmenter.setPartialsEnabled(false)`，只做 final；滞后 < 250 ms 恢复。
+- **重连**：`BackendClient` 在非主动关闭时按 `DEFAULT_RECONNECT`（0.5/1/2/4 s，最多 5 次）重连并重新 `session.start`；成功后经 `offscreen.reconnected` 通知 SW 更新 sessionId 并让 content script 重挂字幕层；失败则走原 `offscreen.disconnected` → 停止会话。
+- **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
+- **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
 ## 设置流（Phase 1）
 

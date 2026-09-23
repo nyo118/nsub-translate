@@ -56,6 +56,7 @@ body { margin: 0; min-width: 380px; background: var(--bg); }
 .btn.secondary { height: 40px; font-size: 14px; }
 .level { height: 4px; border-radius: 2px; background: var(--primary-soft); overflow: hidden; }
 .level > div { height: 100%; background: var(--primary); transition: width 120ms linear; }
+.asr-line { text-align: center; color: var(--muted); font-size: 11px; }
 
 /* Style section */
 .section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; background: none; border: none; padding: 0; font: inherit; font-weight: 600; font-size: 14px; color: var(--text); cursor: pointer; }

@@ -185,9 +185,18 @@ export function App() {
             </button>
           )}
           {isActive && (
-            <div className="level" aria-label="audio level">
-              <div style={{ width: `${Math.min(100, Math.round((snapshot?.audioLevel ?? 0) * 300))}%` }} />
-            </div>
+            <>
+              <div className="level" aria-label="audio level">
+                <div style={{ width: `${Math.min(100, Math.round((snapshot?.audioLevel ?? 0) * 300))}%` }} />
+              </div>
+              <div className="asr-line">
+                {snapshot?.connection === 'reconnecting'
+                  ? '正在重新连接本地后端…'
+                  : `识别：${snapshot?.asr?.provider === 'sensevoice' ? 'SenseVoice' : snapshot?.asr?.provider ?? '…'} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
+                      snapshot?.metrics ? ` · 延迟 ≈ ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
+                    }`}
+              </div>
+            </>
           )}
           <button className="btn secondary" disabled={!canStop} onClick={() => void run('popup.stop')}>
             停止
@@ -232,7 +241,7 @@ export function App() {
         )}
       </section>
 
-      <div className="footer">本地后端 · 目前为模拟字幕</div>
+      <div className="footer">本地后端 · 本机语音识别 · 翻译将在下一阶段接入</div>
     </div>
   );
 }

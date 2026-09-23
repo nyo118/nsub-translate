@@ -1,17 +1,21 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
-import type { ServerMessage } from '@lst/protocol';
-import { BackendClient, type SocketLike } from './backend-client.js';
+import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
+import { BackendClient, type ReconnectPolicy, type SocketLike } from './backend-client.js';
+
+const READY = { type: 'session.ready', sessionId: 'sid', asr: { provider: 'mock', language: 'en' } };
 
 class FakeSocket implements SocketLike {
   readyState = 0;
   sent: string[] = [];
+  binary: ArrayBuffer[] = [];
   onopen: ((ev: unknown) => void) | null = null;
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   onclose: ((ev: { code: number; reason: string }) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
   closeCalls: Array<{ code?: number; reason?: string }> = [];
-  send(data: string) {
-    this.sent.push(data);
+  send(data: string | ArrayBuffer) {
+    if (typeof data === 'string') this.sent.push(data);
+    else this.binary.push(data);
   }
   close(code?: number, reason?: string) {
     this.closeCalls.push(code === undefined ? {} : reason === undefined ? { code } : { code, reason });
@@ -27,19 +31,26 @@ class FakeSocket implements SocketLike {
   }
 }
 
-function setup() {
+function setup(reconnect: ReconnectPolicy | null = null) {
   const sockets: FakeSocket[] = [];
   const received: ServerMessage[] = [];
   const closes: string[] = [];
+  const reconnects: string[] = [];
   const client = new BackendClient(
-    { onMessage: (m) => received.push(m), onClose: (r) => closes.push(r) },
+    {
+      onMessage: (m) => received.push(m),
+      onClose: (r) => closes.push(r),
+      onReconnecting: (n) => reconnects.push(`attempt ${n}`),
+      onReconnected: (sid) => reconnects.push(`ok ${sid}`),
+    },
     () => {
       const s = new FakeSocket();
       sockets.push(s);
       return s;
     },
+    reconnect,
   );
-  return { client, sockets, received, closes };
+  return { client, sockets, received, closes, reconnects };
 }
 
 const langs = { sourceLanguage: 'en', targetLanguage: 'zh-CN' };
@@ -53,10 +64,11 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 1, ...langs });
-    s.receive({ type: 'session.ready', sessionId: 'sid' });
+    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 2, ...langs, audio: AUDIO_FORMAT });
+    s.receive(READY);
     await expect(p).resolves.toBe('sid');
     expect(client.sessionId).toBe('sid');
+    expect(client.asr).toEqual({ provider: 'mock', language: 'en' });
   });
 
   it('rejects when the backend cannot be reached (socket closes before ready)', async () => {
@@ -90,7 +102,7 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    s.receive({ type: 'session.ready', sessionId: 'sid' });
+    s.receive(READY);
     await p;
     s.receive({ type: 'transcript', sessionId: 'sid', segmentId: 'a', revision: 0, status: 'partial', startMs: 0, sourceText: 'x' });
     s.receive({ garbage: true });
@@ -105,7 +117,7 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    s.receive({ type: 'session.ready', sessionId: 'sid' });
+    s.receive(READY);
     await p;
     const d = client.disconnect(800);
     expect(JSON.parse(s.sent[1]!)).toEqual({ type: 'session.stop', sessionId: 'sid' });
@@ -121,7 +133,7 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    s.receive({ type: 'session.ready', sessionId: 'sid' });
+    s.receive(READY);
     await p;
     const d = client.disconnect(300);
     vi.advanceTimersByTime(300);
@@ -133,9 +145,79 @@ describe('BackendClient', () => {
     const { client, sockets } = setup();
     const p = client.connect('ws://x', langs, 1000);
     sockets[0]!.open();
-    sockets[0]!.receive({ type: 'session.ready', sessionId: 'sid' });
+    sockets[0]!.receive(READY);
     await p;
     await expect(client.connect('ws://x', langs, 1000)).rejects.toThrow(/already connected/);
     expect(sockets).toHaveLength(1);
+  });
+
+  it('sends binary audio only while a session is ready and counts drops', async () => {
+    const { client, sockets } = setup();
+    expect(client.sendAudio(new ArrayBuffer(4))).toBe(false);
+    const p = client.connect('ws://x', langs, 1000);
+    const s = sockets[0]!;
+    s.open();
+    expect(client.sendAudio(new ArrayBuffer(4))).toBe(false); // open but not ready yet
+    s.receive(READY);
+    await p;
+    expect(client.sendAudio(new ArrayBuffer(4))).toBe(true);
+    expect(s.binary).toHaveLength(1);
+    expect(client.stats).toEqual({ audioFramesSent: 1, audioFramesDropped: 2 });
+  });
+
+  it('reconnects with backoff after an unexpected close and reports the new session', async () => {
+    const { client, sockets, closes, reconnects } = setup({ maxAttempts: 3, delaysMs: [100, 200] });
+    const p = client.connect('ws://x', langs, 1000);
+    sockets[0]!.open();
+    sockets[0]!.receive(READY);
+    await p;
+    // Backend dies.
+    sockets[0]!.readyState = 3;
+    sockets[0]!.onclose?.({ code: 1006, reason: '' });
+    expect(client.isReconnecting).toBe(true);
+    expect(sockets).toHaveLength(2); // attempt 1 is immediate
+    sockets[1]!.close(1006); // attempt 1 fails
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sockets).toHaveLength(3); // attempt 2 after 100 ms
+    sockets[2]!.open();
+    sockets[2]!.receive({ ...READY, sessionId: 'sid-2' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.isReconnecting).toBe(false);
+    expect(client.sessionId).toBe('sid-2');
+    expect(reconnects).toEqual(['attempt 1', 'attempt 2', 'ok sid-2']);
+    expect(closes).toEqual([]);
+  });
+
+  it('gives up after maxAttempts and then reports onClose once', async () => {
+    const { client, sockets, closes } = setup({ maxAttempts: 2, delaysMs: [50] });
+    const p = client.connect('ws://x', langs, 1000);
+    sockets[0]!.open();
+    sockets[0]!.receive(READY);
+    await p;
+    sockets[0]!.readyState = 3;
+    sockets[0]!.onclose?.({ code: 1006, reason: 'gone' });
+    sockets[1]!.close(1006);
+    await vi.advanceTimersByTimeAsync(50);
+    sockets[2]!.close(1006);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(closes).toEqual(['gone; reconnect failed after 2 attempts']);
+    expect(client.isReconnecting).toBe(false);
+    expect(sockets).toHaveLength(3);
+  });
+
+  it('disconnect() during a reconnect wait cancels it silently', async () => {
+    const { client, sockets, closes } = setup({ maxAttempts: 5, delaysMs: [1000] });
+    const p = client.connect('ws://x', langs, 1000);
+    sockets[0]!.open();
+    sockets[0]!.receive(READY);
+    await p;
+    sockets[0]!.readyState = 3;
+    sockets[0]!.onclose?.({ code: 1006, reason: '' });
+    sockets[1]!.close(1006);
+    await client.disconnect(100);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sockets).toHaveLength(2);
+    expect(closes).toEqual([]);
+    expect(client.isReconnecting).toBe(false);
   });
 });

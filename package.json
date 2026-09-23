@@ -20,7 +20,8 @@
     "build": "npm run check-node && npm run build -w @lst/protocol && npm run build -w @lst/server && npm run build -w @lst/extension",
     "dev:server": "npm run check-node && npm run build:protocol && npm run dev -w @lst/server",
     "start:server": "npm run check-node && npm run start -w @lst/server",
-    "check-node": "node scripts/check-node.mjs"
+    "check-node": "node scripts/check-node.mjs",
+    "models:download": "node scripts/download-models.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

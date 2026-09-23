@@ -1,7 +1,12 @@
 import {
+  AUDIO_FORMAT,
+  MAX_AUDIO_FRAME_BYTES,
   PROTOCOL_VERSION,
+  type AsrInfo,
+  type AudioFormat,
   type ClientMessage,
   type ServerMessage,
+  type SessionMetricsMessage,
   type TranscriptMessage,
 } from './index.js';
 
@@ -55,6 +60,8 @@ export function validateClientMessage(value: unknown): ParseResult<ClientMessage
       }
       if (!isNonEmptyString(value['sourceLanguage'])) return { ok: false, error: 'sourceLanguage is required' };
       if (!isNonEmptyString(value['targetLanguage'])) return { ok: false, error: 'targetLanguage is required' };
+      const audio = validateAudioFormat(value['audio']);
+      if (!audio.ok) return audio;
       return {
         ok: true,
         message: {
@@ -62,6 +69,7 @@ export function validateClientMessage(value: unknown): ParseResult<ClientMessage
           protocolVersion: PROTOCOL_VERSION,
           sourceLanguage: value['sourceLanguage'],
           targetLanguage: value['targetLanguage'],
+          audio: audio.message,
         },
       };
     }
@@ -73,6 +81,50 @@ export function validateClientMessage(value: unknown): ParseResult<ClientMessage
     default:
       return { ok: false, error: 'unknown client message type' };
   }
+}
+
+export function validateAudioFormat(value: unknown): ParseResult<AudioFormat> {
+  if (!isRecord(value)) return { ok: false, error: 'audio format is required' };
+  if (value['encoding'] !== AUDIO_FORMAT.encoding) return { ok: false, error: `audio.encoding must be ${AUDIO_FORMAT.encoding}` };
+  if (value['sampleRate'] !== AUDIO_FORMAT.sampleRate) return { ok: false, error: `audio.sampleRate must be ${AUDIO_FORMAT.sampleRate}` };
+  if (value['channels'] !== AUDIO_FORMAT.channels) return { ok: false, error: `audio.channels must be ${AUDIO_FORMAT.channels}` };
+  return { ok: true, message: { ...AUDIO_FORMAT } };
+}
+
+/** Validate a binary audio frame and view it as PCM16 samples (copy-free). */
+export function validateAudioFrame(data: unknown): ParseResult<Int16Array> {
+  if (!(data instanceof Uint8Array)) return { ok: false, error: 'audio frame must be binary' };
+  if (data.byteLength === 0) return { ok: false, error: 'audio frame is empty' };
+  if (data.byteLength % 2 !== 0) return { ok: false, error: 'audio frame length must be even (16-bit samples)' };
+  if (data.byteLength > MAX_AUDIO_FRAME_BYTES) return { ok: false, error: `audio frame exceeds ${MAX_AUDIO_FRAME_BYTES} bytes` };
+  const aligned = data.byteOffset % 2 === 0 ? data : new Uint8Array(data); // Int16Array needs 2-byte alignment
+  return { ok: true, message: new Int16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2) };
+}
+
+function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
+  if (!isRecord(value)) return { ok: false, error: 'asr info is required' };
+  if (!isNonEmptyString(value['provider'])) return { ok: false, error: 'asr.provider is required' };
+  if (!isNonEmptyString(value['language'])) return { ok: false, error: 'asr.language is required' };
+  return { ok: true, message: { provider: value['provider'], language: value['language'] } };
+}
+
+function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessage> {
+  if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
+  for (const key of ['audioSeconds', 'partials', 'finals', 'avgDecodeMs', 'avgLatencyMs'] as const) {
+    if (!isFiniteNumber(value[key]) || value[key] < 0) return { ok: false, error: `${key} must be a number >= 0` };
+  }
+  return {
+    ok: true,
+    message: {
+      type: 'session.metrics',
+      sessionId: value['sessionId'],
+      audioSeconds: value['audioSeconds'] as number,
+      partials: value['partials'] as number,
+      finals: value['finals'] as number,
+      avgDecodeMs: value['avgDecodeMs'] as number,
+      avgLatencyMs: value['avgLatencyMs'] as number,
+    },
+  };
 }
 
 export function validateTranscript(value: UnknownRecord): ParseResult<TranscriptMessage> {
@@ -103,12 +155,19 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
 export function validateServerMessage(value: unknown): ParseResult<ServerMessage> {
   if (!isRecord(value)) return { ok: false, error: 'message is not an object' };
   switch (value['type']) {
-    case 'session.ready':
+    case 'session.ready': {
+      if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
+      const asr = validateAsrInfo(value['asr']);
+      if (!asr.ok) return asr;
+      return { ok: true, message: { type: 'session.ready', sessionId: value['sessionId'], asr: asr.message } };
+    }
     case 'session.pong':
     case 'session.stopped': {
       if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
       return { ok: true, message: { type: value['type'], sessionId: value['sessionId'] } };
     }
+    case 'session.metrics':
+      return validateMetrics(value);
     case 'transcript':
       return validateTranscript(value);
     case 'session.error': {
