@@ -26,5 +26,7 @@ describe('cleanOutput', () => {
     expect(cleanOutput('"你好"')).toBe('你好');
     expect(cleanOutput('  你好，世界。 ')).toBe('你好，世界。');
     expect(cleanOutput('他说"好"。')).toBe('他说"好"。');
+    expect(cleanOutput('“因为不久前还在努力，所以会有点遗憾吧。”')).toBe('因为不久前还在努力，所以会有点遗憾吧。');
+    expect(cleanOutput('“他说”，然后走了。“真的”')).toBe('“他说”，然后走了。“真的”'); // inner quotes → not a wrapper
   });
 });

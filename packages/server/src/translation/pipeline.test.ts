@@ -141,6 +141,30 @@ describe('TranslationPipeline', () => {
     revs.forEach((r, i) => i > 0 && expect(r).toBeGreaterThan(revs[i - 1]!));
   });
 
+  it('pauses partial translation while the translator is slower than the partial interval', async () => {
+    let clock = 0;
+    const { adapter, pipeline } = make({ translatePartials: true, partialMinChars: 1, partialIntervalMs: 2000, now: () => clock });
+    pipeline.onTranscript(t('a', 0, 'final', 'Slow one.'));
+    clock += 5000; // translation took 5 s (> 2 s interval)
+    adapter.calls[0]!.resolve('慢');
+    await flush();
+    expect(pipeline.partialsPaused).toBe(true);
+    pipeline.onTranscript(t('b', 0, 'partial', 'a growing partial sentence'));
+    expect(adapter.calls).toHaveLength(1); // no partial translation scheduled
+    pipeline.onTranscript(t('b', 1, 'final', 'a growing partial sentence.'));
+    clock += 500; // fast now
+    adapter.calls[1]!.resolve('快');
+    await flush();
+    clock += 500;
+    pipeline.onTranscript(t('c', 0, 'final', 'c.'));
+    adapter.calls[2]!.resolve('快2');
+    await flush();
+    // EMA recovered below the interval → partials resume.
+    expect(pipeline.partialsPaused).toBe(false);
+    pipeline.onTranscript(t('d', 0, 'partial', 'another growing partial'));
+    expect(adapter.calls).toHaveLength(4);
+  });
+
   it('discards a stale translation result when the source changed meanwhile', async () => {
     const { adapter, out, pipeline } = make({ translatePartials: true, partialMinChars: 1, partialIntervalMs: 0 });
     pipeline.onTranscript(t('a', 0, 'partial', 'first text'));

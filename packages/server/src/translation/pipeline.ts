@@ -62,6 +62,8 @@ export class TranslationPipeline {
   private readonly history: TranslationContextItem[] = [];
   private consecutiveFailures = 0;
   private _translated = 0;
+  /** Exponential moving average of translation time; gates partial translation. */
+  private avgTranslateMs = 0;
   private stopped = false;
   private failed = false;
 
@@ -116,7 +118,7 @@ export class TranslationPipeline {
       if (this.inFlight?.job.segmentId === t.segmentId && this.inFlight.job.status === 'partial') this.inFlight.abort.abort();
       this.finalQueue.push({ segmentId: t.segmentId, status: 'final', text: t.text });
       while (this.finalQueue.length > this.o.maxBacklog) this.finalQueue.shift(); // oldest lose their translation
-    } else if (this.o.translatePartials && t.text.length >= this.o.partialMinChars) {
+    } else if (this.o.translatePartials && t.text.length >= this.o.partialMinChars && this.partialsAffordable()) {
       if (this.o.now() - seg.lastPartialTranslateAt >= this.o.partialIntervalMs) {
         this.pendingPartial = { segmentId: t.segmentId, status: 'partial', text: t.text };
       }
@@ -166,6 +168,19 @@ export class TranslationPipeline {
       });
   }
 
+  /**
+   * Partial translations only make sense when the translator keeps up:
+   * if a translation takes longer than the partial interval, translating
+   * unfinished sentences would just delay the finals.
+   */
+  private partialsAffordable(): boolean {
+    return this.avgTranslateMs <= this.o.partialIntervalMs;
+  }
+
+  get partialsPaused(): boolean {
+    return this.o.translatePartials && !this.partialsAffordable();
+  }
+
   private takePartial(): Job | undefined {
     const job = this.pendingPartial ?? undefined;
     this.pendingPartial = null;
@@ -174,6 +189,7 @@ export class TranslationPipeline {
 
   private onTranslated(job: Job, translated: string, translateMs: number): void {
     this.consecutiveFailures = 0;
+    this.avgTranslateMs = this.avgTranslateMs === 0 ? translateMs : Math.round(this.avgTranslateMs * 0.6 + translateMs * 0.4);
     const seg = this.segments.get(job.segmentId);
     if (seg === undefined || this.stopped) return;
     const text = translated.trim();

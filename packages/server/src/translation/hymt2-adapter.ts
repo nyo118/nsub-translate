@@ -60,7 +60,13 @@ export function cleanOutput(raw: string): string {
   let s = raw.trim();
   s = s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
   s = s.replace(/^`+|`+$/g, '').trim();
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith('「') && s.endsWith('」'))) s = s.slice(1, -1).trim();
+  const pairs: Array<[string, string]> = [['"', '"'], ['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ["'", "'"]];
+  for (const [open, close] of pairs) {
+    if (s.length >= 2 && s.startsWith(open) && s.endsWith(close) && !s.slice(1, -1).includes(close)) {
+      s = s.slice(1, -1).trim();
+      break;
+    }
+  }
   return s;
 }
 
