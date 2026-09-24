@@ -12,7 +12,9 @@ export interface SessionOptions {
   translatePartials?: boolean;
   send: (message: TranscriptMessage | SessionMetricsMessage) => void;
   onError: (code: 'asr_unavailable' | 'asr_failed' | 'translation_failed', message: string) => void;
-  log?: { warn: (o: Record<string, unknown>, m: string) => void };
+  log?: { warn: (o: Record<string, unknown>, m: string) => void; info?: (o: Record<string, unknown>, m: string) => void };
+  /** Privacy: subtitle text is never logged unless explicitly enabled (LOG_TRANSCRIPTS=1). */
+  logTranscripts?: boolean;
   /** Interval for session.metrics messages; 0 disables. */
   metricsIntervalMs?: number;
   now?: () => number;
@@ -55,7 +57,10 @@ export class Session {
       sessionId: options.sessionId,
       targetLanguage: options.targetLanguage,
       adapter: options.translation,
-      emit: (m) => this.send(m),
+      emit: (m) => {
+        if (options.logTranscripts && m.status === 'final') options.log?.info?.({ sessionId: m.sessionId, segmentId: m.segmentId, text: m.sourceText, translated: m.translatedText }, 'final');
+        this.send(m);
+      },
       onError: (code, message) => this.onError(code, message),
       onMetrics: (s) => {
         this.translateWindow.push(s.translateMs);

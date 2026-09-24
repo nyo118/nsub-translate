@@ -44,6 +44,11 @@ body { margin: 0; min-width: 380px; background: var(--bg); }
 .field select { width: 100%; height: 40px; padding: 0 30px 0 10px; border-radius: 10px; border: 1px solid var(--border); background: #fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%236b7684' d='M2 4l4 4 4-4z'/></svg>") no-repeat right 10px center; appearance: none; font-size: 13px; color: var(--text); }
 .field select:disabled { opacity: 0.6; }
 .field-hint { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.field-hint.warn { color: var(--warn); }
+.inline-select { height: 30px; border-radius: 8px; border: 1px solid var(--border); background: #fff; padding: 0 8px; font-size: 13px; color: var(--text); }
+.diag { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 12px; font-size: 12px; }
+.diag .value { max-width: 65%; word-break: break-word; }
+.diag-raw { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--error); white-space: pre-wrap; word-break: break-word; background: #fdf3f2; border-radius: 8px; padding: 8px; }
 .arrow { height: 40px; display: flex; align-items: center; color: var(--muted); font-size: 18px; }
 .pending { color: var(--warn); font-size: 12px; }
 

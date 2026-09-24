@@ -67,7 +67,8 @@ describe('backend websocket', () => {
   it('exposes a health endpoint', async () => {
     const res = await app.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, openConnections: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'] });
+    expect(res.json()).toMatchObject({ ok: true, openConnections: 0, activeSessions: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'], engines: {} });
+    expect(res.json().uptimeSec).toBeGreaterThanOrEqual(0);
   });
 
   it('runs a full session lifecycle: start → ready → transcripts → stop → stopped', async () => {
@@ -113,11 +114,30 @@ describe('backend websocket', () => {
     const { next } = collect(ws);
     ws.send(START);
     await next('session.ready');
-    expect((await app.inject({ method: 'GET', url: '/healthz' })).json().openConnections).toBe(1);
+    const during = (await app.inject({ method: 'GET', url: '/healthz' })).json();
+    expect(during.openConnections).toBe(1);
+    expect(during.activeSessions).toBe(1);
     ws.close();
     await closed(ws);
     await new Promise((r) => setTimeout(r, 50));
-    expect((await app.inject({ method: 'GET', url: '/healthz' })).json().openConnections).toBe(0);
+    const after = (await app.inject({ method: 'GET', url: '/healthz' })).json();
+    expect(after.openConnections).toBe(0);
+    expect(after.activeSessions).toBe(0);
+  });
+
+  it('closes a connection that stays silent longer than the idle timeout', async () => {
+    const quiet = await buildApp({ asr: createMockFactory(20), translation: new TranslationRegistry('mock').register('mock', () => createMockTranslationFactory(5)), logger: false, metricsIntervalMs: 0, idleTimeoutMs: 150 });
+    await quiet.listen({ host: '127.0.0.1', port: 0 });
+    const address = quiet.server.address();
+    if (address === null || typeof address === 'string') throw new Error('no address');
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const s = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
+      s.once('open', () => resolve(s));
+      s.once('error', reject);
+    });
+    const code = await new Promise<number>((resolve) => ws.once('close', (c) => resolve(c)));
+    expect(code).toBe(1001);
+    await quiet.close();
   });
 
   it('supports independent sessions on separate connections', async () => {

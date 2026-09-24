@@ -22,6 +22,9 @@ export interface ConnectionHandlerOptions {
   log: ConnectionLogger;
   newSessionId?: () => string;
   metricsIntervalMs?: number;
+  /** +1 when a session becomes running, -1 when it stops (for /healthz). */
+  onSessionCount?: (delta: 1 | -1) => void;
+  logTranscripts?: boolean;
 }
 
 /**
@@ -38,6 +41,8 @@ export class ConnectionHandler {
   private readonly log: ConnectionLogger;
   private readonly newSessionId: () => string;
   private readonly metricsIntervalMs: number;
+  private readonly onSessionCount: (delta: 1 | -1) => void;
+  private readonly logTranscripts: boolean;
   private droppedAudioFrames = 0;
 
   constructor(options: ConnectionHandlerOptions) {
@@ -47,6 +52,8 @@ export class ConnectionHandler {
     this.log = options.log;
     this.newSessionId = options.newSessionId ?? (() => randomUUID());
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;
+    this.onSessionCount = options.onSessionCount ?? (() => {});
+    this.logTranscripts = options.logTranscripts ?? false;
   }
 
   get activeSessionId(): string | null {
@@ -118,6 +125,7 @@ export class ConnectionHandler {
               translation,
               translatePartials: message.options?.translatePartials ?? false,
               log: this.log,
+              logTranscripts: this.logTranscripts,
               send: (m) => this.send(m),
               onError: (code, msg) => {
                 this.error(code, msg);
@@ -128,6 +136,7 @@ export class ConnectionHandler {
             });
             return session.start().then((asr) => {
               this.session = session;
+              this.onSessionCount(1);
               const translationInfo = session.translationInfo;
               this.log.info({ sessionId, sourceLanguage: message.sourceLanguage, targetLanguage: message.targetLanguage, asr, translation: translationInfo, translatePartials: message.options?.translatePartials ?? false }, 'session started');
               this.send({ type: 'session.ready', sessionId, asr, translation: translationInfo });
@@ -175,6 +184,7 @@ export class ConnectionHandler {
     const session = this.session;
     if (session === null) return;
     this.session = null;
+    this.onSessionCount(-1);
     await session.stop();
     this.log.info({ sessionId: session.sessionId, reason, metrics: session.metrics() }, 'session stopped');
   }

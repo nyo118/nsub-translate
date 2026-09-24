@@ -20,6 +20,8 @@ export interface PersistedSession {
   translatePartials?: boolean;
   /** Wall time of the backend session's audio-clock zero (set once audio flows). */
   audioOriginWall?: number;
+  sessionLimitMs?: number;
+  reconnects?: number;
   lastError?: string;
 }
 
@@ -31,7 +33,7 @@ export interface PersistedSession {
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
   /** Current user settings; read at start time so later changes never touch a running session. */
-  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string }>;
+  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -41,7 +43,7 @@ export interface SessionPorts {
   ensureOffscreen(): Promise<void>;
   hasOffscreen(): Promise<boolean>;
   closeOffscreen(): Promise<void>;
-  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
+  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
   notifyContent(
     tabId: number,
@@ -117,6 +119,8 @@ export class SessionManager {
     if (state.asr !== undefined) snap.asr = state.asr;
     if (state.translation !== undefined) snap.translation = state.translation;
     if (state.translatePartials !== undefined) snap.translatePartials = state.translatePartials;
+    if (state.sessionLimitMs !== undefined) snap.sessionLimitMs = state.sessionLimitMs;
+    snap.reconnects = state.reconnects ?? 0;
     if (state.status === 'active') {
       if (this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
       if (this.metrics !== undefined) snap.metrics = this.metrics;
@@ -166,8 +170,8 @@ export class SessionManager {
         if (!detection.playerFound) {
           throw new Error(`No ${detection.platform} video player found on this page. Open a video first.`);
         }
-        const languages = await this.ports.loadLanguages();
-        await this.setState({ status: 'starting', tabId, platform: detection.platform, ...languages });
+        const { sessionLimitMs, ...languages } = await this.ports.loadLanguages();
+        await this.setState({ status: 'starting', tabId, platform: detection.platform, ...languages, sessionLimitMs });
 
         // Prefer the stream id the popup obtained in the user's click context.
         const streamId = capture?.streamId ?? (await this.ports.getStreamId(tabId));
@@ -176,6 +180,7 @@ export class SessionManager {
           streamId,
           backendUrl: this.backendUrl,
           ...languages,
+          sessionLimitMs,
         });
         if (!result.ok) throw new Error(result.error);
 
@@ -190,6 +195,8 @@ export class SessionManager {
           platform: detection.platform,
           startedAt: Date.now(),
           ...languages,
+          sessionLimitMs,
+          reconnects: 0,
           ...(result.asr === undefined ? {} : { asr: result.asr }),
           ...(result.translation === undefined ? {} : { translation: result.translation }),
         });
@@ -270,6 +277,16 @@ export class SessionManager {
     this.connection = 'reconnecting';
   }
 
+  /** The offscreen document's timer fired: the configured session length is up. */
+  async onLimitReached(sessionLimitMs: number): Promise<void> {
+    const current = await this.getState();
+    if (current.status === 'idle') return;
+    await this.stop('session limit reached');
+    const hours = Math.round((sessionLimitMs / 3_600_000) * 10) / 10;
+    const after = await this.getState();
+    await this.setState({ ...after, status: 'idle', lastError: `已达到 ${hours} 小时的会话时长上限，已自动停止。可在「字幕样式」中调整上限。` });
+  }
+
   /** The offscreen document re-established the backend session under a new id. */
   async onReconnected(sessionId: string, asr: AsrInfo, translation?: TranslationInfo): Promise<void> {
     const current = await this.getState();
@@ -277,7 +294,7 @@ export class SessionManager {
     this.connection = 'connected';
     this.metrics = undefined;
     const { audioOriginWall: _oldOrigin, ...rest } = current;
-    await this.setState({ ...rest, sessionId, asr, ...(translation === undefined ? {} : { translation }) });
+    await this.setState({ ...rest, sessionId, asr, reconnects: (current.reconnects ?? 0) + 1, ...(translation === undefined ? {} : { translation }) });
     if (current.tabId !== undefined) {
       await this.ports.notifyContent(current.tabId, { type: 'content.sessionStarted', sessionId }).catch(() => undefined);
     }

@@ -69,8 +69,18 @@ export interface Settings {
   translationEngine: TranslationEngine;
   /** Also translate in-progress sentences (more CPU). Applies on next start. */
   translatePartials: boolean;
+  /** Auto-stop after this many hours (0 = never). Applies on next start. */
+  sessionLimitHours: number;
   style: SubtitleStyle;
 }
+
+export const SESSION_LIMIT_CHOICES: ReadonlyArray<{ hours: number; label: string }> = [
+  { hours: 1, label: '1 小时' },
+  { hours: 2, label: '2 小时' },
+  { hours: 3, label: '3 小时' },
+  { hours: 6, label: '6 小时' },
+  { hours: 0, label: '不限制' },
+];
 
 export const STYLE_LIMITS = {
   fontSize: { min: 12, max: 48, step: 1 },
@@ -92,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   targetLanguage: 'zh-CN',
   translationEngine: 'hy-mt2',
   translatePartials: false,
+  sessionLimitHours: 3,
   style: { ...DEFAULT_STYLE },
 };
 
@@ -118,6 +129,7 @@ export function normalizeSettings(raw: unknown): Settings {
     targetLanguage: language(r['targetLanguage'], TARGET_LANGUAGES, DEFAULT_SETTINGS.targetLanguage),
     translationEngine: TRANSLATION_ENGINES.some((e) => e.code === r['translationEngine']) ? (r['translationEngine'] as TranslationEngine) : DEFAULT_SETTINGS.translationEngine,
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
+    sessionLimitHours: SESSION_LIMIT_CHOICES.some((c) => c.hours === r['sessionLimitHours']) ? (r['sessionLimitHours'] as number) : DEFAULT_SETTINGS.sessionLimitHours,
     style: {
       fontSize: clamp(s['fontSize'], DEFAULT_STYLE.fontSize, STYLE_LIMITS.fontSize.min, STYLE_LIMITS.fontSize.max),
       position: clamp(s['position'], DEFAULT_STYLE.position, STYLE_LIMITS.position.min, STYLE_LIMITS.position.max),

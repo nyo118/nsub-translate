@@ -17,7 +17,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const calls: string[] = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
-    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2' }),
+    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2', sessionLimitMs: 3 * 3_600_000 }),
     saveState: async (s) => {
       stored.value = s;
     },
@@ -92,7 +92,7 @@ describe('SessionManager', () => {
     expect(snap.sourceLanguage).toBe('ja');
     expect(snap.targetLanguage).toBe('zh-TW');
     // Settings changed after start must not affect the running session's snapshot.
-    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true, translationProvider: 'google' });
+    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true, translationProvider: 'google', sessionLimitMs: 0 });
     expect((await m.snapshot()).targetLanguage).toBe('zh-TW');
   });
 
@@ -263,6 +263,31 @@ describe('SessionManager', () => {
     // A reconnect starts a new audio clock: the stale origin is dropped until reported again.
     await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'auto' });
     expect((await m.sessionForTab(7)).audioOriginWall).toBeUndefined();
+  });
+
+  it('passes the session limit to the offscreen document and stops with a clear message when it fires', async () => {
+    const world = makeWorld();
+    const startOffscreen = vi.fn(world.ports.startOffscreen);
+    world.ports.startOffscreen = startOffscreen;
+    const m = manager(world);
+    await m.start();
+    expect(startOffscreen).toHaveBeenCalledWith(expect.objectContaining({ sessionLimitMs: 3 * 3_600_000 }));
+    expect((await m.snapshot()).sessionLimitMs).toBe(3 * 3_600_000);
+    await m.onLimitReached(3 * 3_600_000);
+    const snap = await m.snapshot();
+    expect(snap.status).toBe('idle');
+    expect(snap.lastError).toMatch(/3 小时/);
+    expect(world.offscreenOpen.value).toBe(false);
+  });
+
+  it('counts reconnects for diagnostics', async () => {
+    const world = makeWorld();
+    const m = manager(world);
+    await m.start();
+    expect((await m.snapshot()).reconnects).toBe(0);
+    await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'auto' });
+    await m.onReconnected('sid-3', { provider: 'sensevoice', language: 'auto' });
+    expect((await m.snapshot()).reconnects).toBe(2);
   });
 
   it('stop on an idle manager still closes a leftover offscreen document', async () => {

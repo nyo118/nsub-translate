@@ -29,6 +29,13 @@ export interface ServerConfig {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  /** Requests per minute for cloud engines (Gemini free tier is ~15). 0 = unlimited. */
+  geminiRpm: number;
+  llmRpm: number;
+  /** Log subtitle text at debug level (off by default for privacy). */
+  logTranscripts: boolean;
+  /** Close a WebSocket that sent nothing (audio or ping) for this long. */
+  idleTimeoutMs: number;
 }
 
 /** packages/server/models by default (works from src via tsx and from dist). */
@@ -68,5 +75,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     llmBaseUrl: env['LLM_BASE_URL'] ?? '',
     llmApiKey: env['LLM_API_KEY'] ?? '',
     llmModel: env['LLM_MODEL'] ?? '',
+    geminiRpm: int(env['GEMINI_RPM'], 12, 0),
+    llmRpm: int(env['LLM_RPM'], 0, 0),
+    logTranscripts: env['LOG_TRANSCRIPTS'] === '1' || env['LOG_TRANSCRIPTS'] === 'true',
+    idleTimeoutMs: int(env['IDLE_TIMEOUT_MS'], 30_000, 0),
   };
 }

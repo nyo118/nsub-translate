@@ -67,6 +67,14 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
+## 稳定性机制（Phase 5）
+
+- **心跳**：`BackendClient` 在 `session.ready` 后每 15 s 发 `session.ping`；任何入站消息都刷新 `lastInboundAt`；30 s 无入站 → 主动关闭并合成 close 事件 → 进入既有的重连逻辑。后端 `app.ts` 对每个连接维护空闲计时器（默认 30 s）。
+- **会话上限**：`sessionLimitMs` 随 `offscreen.start` 传入，Offscreen 计时到点发 `offscreen.limitReached` → SW `onLimitReached` 走正常 stop 并写入中文 `lastError`。
+- **限流**：`RateLimiter`（令牌桶）挂在每个云端引擎工厂上，跨会话共享；等待超过 4 s 直接失败（pipeline 跳过该句）；429 → 15 s 冷却。后端对音频帧做每秒 25 帧的滑动窗口上限。
+- **诊断**：`/healthz` 返回 `uptimeSec / activeSessions / engines{configured,ready,hint}`；popup 每 3 s 拉取，用于开始前的后端状态与引擎可用性；`describeConfiguredEngines` 在启动日志中打印脱敏配置。
+- **隐私**：`Session` 只有 `logTranscripts` 为真时才把 final 文本写日志；pipeline 的失败日志只含 segmentId。
+
 ## 播放同步（Phase 4）
 
 ```

@@ -1,5 +1,6 @@
 import type { TranslationAdapter, TranslationAdapterFactory, TranslationRequest } from './types.js';
 import { TARGET_NAMES, cleanOutput } from './text-utils.js';
+import { RateLimiter } from './rate-limiter.js';
 
 /**
  * Any OpenAI-compatible chat-completions endpoint: Gemini (AI Studio),
@@ -17,7 +18,14 @@ export interface OpenAiCompatibleConfig {
   /** Env variable names for error messages. */
   envHint: string;
   log?: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
+  /** Requests per minute allowed for this engine (cloud free tiers). 0 = unlimited. */
+  requestsPerMinute?: number;
+  /** Shared limiter (one per engine, across sessions). */
+  limiter?: RateLimiter;
 }
+
+const RATE_LIMIT_MAX_WAIT_MS = 4000;
+const COOLDOWN_AFTER_429_MS = 15_000;
 
 /** Most OpenAI-compatible servers (LM Studio, Ollama, Groq, OpenRouter) live under `/v1`; add it when the URL has no path. */
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -60,6 +68,7 @@ export class OpenAiCompatibleAdapter implements TranslationAdapter {
   }
 
   async translate(request: TranslationRequest): Promise<string> {
+    if (this.config.limiter) await this.config.limiter.acquire(RATE_LIMIT_MAX_WAIT_MS);
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [{ role: 'system', content: buildSystemPrompt(request.targetLanguage) }];
     for (const c of request.context) {
       messages.push({ role: 'user', content: c.source }, { role: 'assistant', content: c.translated });
@@ -74,6 +83,7 @@ export class OpenAiCompatibleAdapter implements TranslationAdapter {
       const res = await this.fetchImpl(url, init);
       if (res.status === 429 || res.status >= 500) {
         // Transient: rate limit / overload. One short retry, then give up on this sentence.
+        if (res.status === 429) this.config.limiter?.penalize(COOLDOWN_AFTER_429_MS);
         lastError = new Error(`${this.provider} HTTP ${res.status}`);
         if (attempt === 0) {
           await new Promise((r) => setTimeout(r, 800));
@@ -94,6 +104,9 @@ export class OpenAiCompatibleAdapter implements TranslationAdapter {
 }
 
 export function createOpenAiCompatibleFactory(config: OpenAiCompatibleConfig): TranslationAdapterFactory {
+  if (config.limiter === undefined && (config.requestsPerMinute ?? 0) > 0) {
+    config = { ...config, limiter: new RateLimiter(config.requestsPerMinute ?? 0) };
+  }
   return {
     provider: config.provider,
     async prepare() {

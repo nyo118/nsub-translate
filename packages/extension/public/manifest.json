@@ -10,7 +10,7 @@
     "128": "icons/icon128.png"
   },
   "permissions": ["tabCapture", "offscreen", "storage", "activeTab"],
-  "host_permissions": ["*://*.youtube.com/*", "*://*.twitch.tv/*"],
+  "host_permissions": ["*://*.youtube.com/*", "*://*.twitch.tv/*", "http://127.0.0.1:8787/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

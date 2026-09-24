@@ -22,6 +22,7 @@ const LEVEL_INTERVAL_MS = 200;
 let capture: AudioCaptureHandle | null = null;
 let client: BackendClient | null = null;
 let levelTimer: ReturnType<typeof setInterval> | null = null;
+let limitTimer: ReturnType<typeof setTimeout> | null = null;
 let stopping: Promise<OffscreenStopResponse> | null = null;
 
 function log(message: string, data?: unknown): void {
@@ -97,6 +98,12 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     levelTimer = setInterval(() => {
       if (capture !== null) toBackground({ target: 'background', type: 'offscreen.level', level: capture.level() });
     }, LEVEL_INTERVAL_MS);
+    if (req.sessionLimitMs > 0) {
+      limitTimer = setTimeout(() => {
+        log('session limit reached', req.sessionLimitMs);
+        toBackground({ target: 'background', type: 'offscreen.limitReached', sessionLimitMs: req.sessionLimitMs });
+      }, req.sessionLimitMs);
+    }
     log('session ready', { sessionId, asr: localClient.asr, translation: localClient.translation });
     return {
       ok: true,
@@ -119,6 +126,10 @@ function stop(): Promise<OffscreenStopResponse> {
     if (levelTimer !== null) {
       clearInterval(levelTimer);
       levelTimer = null;
+    }
+    if (limitTimer !== null) {
+      clearTimeout(limitTimer);
+      limitTimer = null;
     }
     const localClient = client;
     const localCapture = capture;

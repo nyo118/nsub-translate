@@ -27,6 +27,12 @@ export class TranslationRegistry {
     return this.builders.has(name);
   }
 
+  /** Engines whose prepare() has completed successfully. */
+  get readyProviders(): string[] {
+    return [...this.ready];
+  }
+  private readonly ready = new Set<string>();
+
   /** Resolve (and prepare once) a factory. Rejects with the factory's own actionable error. */
   get(name: string = this.defaultProvider): Promise<TranslationAdapterFactory> {
     const builder = this.builders.get(name);
@@ -36,6 +42,7 @@ export class TranslationRegistry {
       pending = (async () => {
         const factory = builder();
         await factory.prepare();
+        this.ready.add(name);
         return factory;
       })();
       // A failed prepare (e.g. missing key) must be retried next time, not cached.

@@ -40,6 +40,11 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ translationEngine: 'gemini' }).translationEngine).toBe('gemini');
     expect(normalizeSettings({ translationEngine: 'deepl' }).translationEngine).toBe('hy-mt2');
   });
+  it('normalises the session limit to a known choice', () => {
+    expect(normalizeSettings({ sessionLimitHours: 6 }).sessionLimitHours).toBe(6);
+    expect(normalizeSettings({ sessionLimitHours: 0 }).sessionLimitHours).toBe(0);
+    expect(normalizeSettings({ sessionLimitHours: 5 }).sessionLimitHours).toBe(3);
+  });
   it('normalises translatePartials to a boolean', () => {
     expect(normalizeSettings({ translatePartials: true }).translatePartials).toBe(true);
     expect(normalizeSettings({ translatePartials: 'yes' }).translatePartials).toBe(false);

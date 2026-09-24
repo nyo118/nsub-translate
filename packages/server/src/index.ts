@@ -2,10 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { loadConfig } from './config.js';
 import { startServer } from './app.js';
 
-// Backend-only secrets (e.g. GOOGLE_TRANSLATE_API_KEY) live in packages/server/.env or the repo root .env.
+import { statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// Backend-only secrets (e.g. GEMINI_API_KEY) live in packages/server/.env or the repo root .env.
 for (const candidate of [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)]) {
   try {
     process.loadEnvFile(candidate);
+    // Key hygiene: the file should be readable by this user only.
+    const mode = statSync(fileURLToPath(candidate)).mode & 0o077;
+    if (mode !== 0) console.warn(`[lst-server] ${fileURLToPath(candidate)} is readable by other users; run: chmod 600 "${fileURLToPath(candidate)}"`);
     break;
   } catch {
     /* no .env here */

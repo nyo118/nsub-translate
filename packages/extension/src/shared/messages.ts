@@ -33,6 +33,9 @@ export interface SessionSnapshot {
   metrics?: SessionMetricsMessage;
   /** Backend connection state while active: connected, or reconnecting after a drop. */
   connection?: 'connected' | 'reconnecting';
+  /** Diagnostics. */
+  reconnects?: number;
+  sessionLimitMs?: number;
 }
 
 // ---- Popup -> Background --------------------------------------------------
@@ -63,7 +66,8 @@ export type OffscreenToBackground =
   | { target: 'background'; type: 'offscreen.audioOrigin'; sessionId: string; audioOriginWall: number }
   | { target: 'background'; type: 'offscreen.reconnecting'; attempt: number }
   | { target: 'background'; type: 'offscreen.reconnected'; sessionId: string; asr: AsrInfo; translation: TranslationInfo }
-  | { target: 'background'; type: 'offscreen.disconnected'; reason: string };
+  | { target: 'background'; type: 'offscreen.disconnected'; reason: string }
+  | { target: 'background'; type: 'offscreen.limitReached'; sessionLimitMs: number };
 
 export type ToBackground = PopupToBackground | ContentToBackground | OffscreenToBackground;
 
@@ -77,6 +81,8 @@ export interface OffscreenStartRequest {
   targetLanguage: string;
   translatePartials: boolean;
   translationProvider: string;
+  /** Auto-stop after this long (0 = never). Enforced by the offscreen document, which outlives the worker. */
+  sessionLimitMs: number;
 }
 export interface OffscreenStopRequest {
   target: 'offscreen';

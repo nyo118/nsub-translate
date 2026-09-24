@@ -3,7 +3,46 @@ import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_SETTINGS, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { DEFAULT_SETTINGS, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { friendlyError } from '../shared/friendly-error.js';
+import { BACKEND_WS_URL } from '../shared/config.js';
+
+/** /healthz of the local backend (host permission: http://127.0.0.1:8787/*). */
+const HEALTHZ_URL = BACKEND_WS_URL.replace(/^ws:/, 'http:').replace(/\/ws$/, '/healthz');
+const HEALTH_POLL_MS = 3000;
+
+interface EngineStatus {
+  configured: boolean;
+  ready: boolean;
+  hint?: string;
+}
+interface BackendHealth {
+  ok: boolean;
+  uptimeSec?: number;
+  activeSessions?: number;
+  asrProvider?: string;
+  translationProvider?: string;
+  engines?: Record<string, EngineStatus>;
+}
+type BackendState = { kind: 'unknown' } | { kind: 'down'; error: string } | { kind: 'up'; health: BackendHealth };
+
+async function fetchHealth(): Promise<BackendState> {
+  try {
+    const res = await fetch(HEALTHZ_URL, { cache: 'no-store' });
+    if (!res.ok) return { kind: 'down', error: `HTTP ${res.status}` };
+    return { kind: 'up', health: (await res.json()) as BackendHealth };
+  } catch (err) {
+    return { kind: 'down', error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+}
 
 const POLL_MS = 250;
 const settingsStore = new SettingsStore();
@@ -67,8 +106,12 @@ export function App() {
   const [tab, setTab] = useState<TabInfo | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [styleOpen, setStyleOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backend, setBackend] = useState<BackendState>({ kind: 'unknown' });
+  const [copied, setCopied] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // The service worker may still be waking up when the popup opens; only
   // report it as unreachable after several consecutive failures.
@@ -92,12 +135,18 @@ export function App() {
     const initial = setTimeout(() => {
       tick();
       void settingsStore.load().then(setSettings);
+      void fetchHealth().then(setBackend);
     }, 0);
     const timer = setInterval(tick, POLL_MS);
+    const health = setInterval(() => {
+      void fetchHealth().then(setBackend);
+      setNowMs(Date.now());
+    }, HEALTH_POLL_MS);
     const unsubscribe = settingsStore.subscribe(setSettings);
     return () => {
       clearTimeout(initial);
       clearInterval(timer);
+      clearInterval(health);
       unsubscribe();
     };
   }, [refresh]);
@@ -131,9 +180,31 @@ export function App() {
   const sessionStatus = snapshot?.status ?? 'idle';
   const isActive = sessionStatus === 'active';
   const status = statusOf(snapshot, error);
-  const canStart = sessionStatus === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true;
+  const backendDown = backend.kind === 'down';
+  const canStart = sessionStatus === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true && !backendDown;
   const canStop = (isActive || sessionStatus === 'starting') && !busy;
-  const shownError = error ?? (sessionStatus === 'idle' ? snapshot?.lastError : undefined);
+  const rawError = error ?? (sessionStatus === 'idle' ? snapshot?.lastError : undefined);
+  const shownError = rawError === undefined ? undefined : friendlyError(rawError);
+  const engineStatus = backend.kind === 'up' ? backend.health.engines?.[settings.translationEngine] : undefined;
+  const engineUnavailable = engineStatus !== undefined && !engineStatus.configured;
+  const uptime = snapshot?.startedAt !== undefined && isActive ? formatDuration(nowMs - snapshot.startedAt) : null;
+
+  const diagnostics = {
+    time: new Date().toISOString(),
+    extension: chrome.runtime.getManifest().version,
+    backend: backend.kind === 'up' ? { ...backend.health } : backend,
+    session: snapshot,
+    settings: { ...settings, style: undefined },
+    tab,
+    lastError: rawError ?? null,
+    userAgent: navigator.userAgent,
+  };
+  const copyDiagnostics = () => {
+    void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
   const languagesPending =
     isActive &&
     snapshot !== null &&
@@ -190,7 +261,9 @@ export function App() {
               </option>
             ))}
           </select>
-          <div className="field-hint">{TRANSLATION_ENGINES.find((e) => e.code === settings.translationEngine)?.hint}</div>
+          <div className={`field-hint ${engineUnavailable ? 'warn' : ''}`}>
+            {engineUnavailable ? `后端未配置此引擎：${engineStatus?.hint ?? ''}` : TRANSLATION_ENGINES.find((e) => e.code === settings.translationEngine)?.hint}
+          </div>
         </div>
         <label className="check subtle">
           <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；翻译跟不上时自动只翻整句；下次开始时生效）
@@ -232,7 +305,13 @@ export function App() {
         </div>
       </section>
 
-      {shownError ? <div className="card error-card">{shownError}</div> : <div className="card hint">{tabHint(tab)}</div>}
+      {shownError ? (
+        <div className="card error-card">{shownError}</div>
+      ) : backendDown ? (
+        <div className="card error-card">本地后端未运行（{HEALTHZ_URL} 无响应）。请在终端执行 npm run dev:server，等待「Server listening」后再开始。</div>
+      ) : (
+        <div className="card hint">{tabHint(tab)}</div>
+      )}
 
       <section className="card">
         <button className={`section-toggle ${styleOpen ? 'open' : ''}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen}>
@@ -262,6 +341,17 @@ export function App() {
             <label className="check">
               <input type="checkbox" checked={settings.style.showTranslated} onChange={(e) => updateStyle({ showTranslated: e.target.checked })} /> 显示翻译
             </label>
+            <label className="slider">
+              <span>会话上限</span>
+              <select className="inline-select" value={settings.sessionLimitHours} onChange={(e) => updateSettings({ sessionLimitHours: Number(e.target.value) })}>
+                {SESSION_LIMIT_CHOICES.map((c) => (
+                  <option key={c.hours} value={c.hours}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <span className="val" />
+            </label>
             <button className="btn reset" onClick={() => void settingsStore.reset().then(setSettings)}>
               恢复默认
             </button>
@@ -269,7 +359,63 @@ export function App() {
         )}
       </section>
 
-      <div className="footer">本地后端 · 本机语音识别与翻译</div>
+      <section className="card">
+        <button className={`section-toggle ${diagOpen ? 'open' : ''}`} onClick={() => setDiagOpen((o) => !o)} aria-expanded={diagOpen}>
+          <span>诊断</span>
+          <span className="chev">›</span>
+        </button>
+        {diagOpen && (
+          <div className="diag">
+            <div className="row">
+              <span className="label">本地后端</span>
+              <span className="value">{backend.kind === 'up' ? `运行中 · ${formatDuration((backend.health.uptimeSec ?? 0) * 1000)}` : backend.kind === 'down' ? '未运行' : '…'}</span>
+            </div>
+            {backend.kind === 'up' && (
+              <div className="row">
+                <span className="label">引擎</span>
+                <span className="value">
+                  {Object.entries(backend.health.engines ?? {})
+                    .filter(([name]) => name !== 'mock' && name !== 'none')
+                    .map(([name, st]) => `${providerName(name)} ${st.ready ? '✓' : st.configured ? '○' : '✗'}`)
+                    .join('  ')}
+                </span>
+              </div>
+            )}
+            {isActive && (
+              <>
+                <div className="row">
+                  <span className="label">会话时长</span>
+                  <span className="value">
+                    {uptime}
+                    {snapshot?.sessionLimitMs ? ` / ${formatDuration(snapshot.sessionLimitMs)}` : ''}
+                  </span>
+                </div>
+                <div className="row">
+                  <span className="label">字幕 / 重连</span>
+                  <span className="value">
+                    {snapshot?.transcriptCount ?? 0} 条 · 重连 {snapshot?.reconnects ?? 0} 次
+                  </span>
+                </div>
+                {snapshot?.metrics && (
+                  <div className="row">
+                    <span className="label">音频 / 延迟</span>
+                    <span className="value">
+                      {snapshot.metrics.audioSeconds}s · 识别 {snapshot.metrics.avgLatencyMs}ms · 翻译 {snapshot.metrics.avgTranslateMs}ms
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+            {rawError && <div className="diag-raw">{rawError}</div>}
+            <button className="btn reset" onClick={copyDiagnostics}>
+              {copied ? '已复制' : '复制诊断信息'}
+            </button>
+            <div className="field-hint">✓ 已加载 · ○ 已配置未加载 · ✗ 未配置。诊断信息不含密钥。</div>
+          </div>
+        )}
+      </section>
+
+      <div className="footer">本地后端 · 音频与字幕不离开本机（云端翻译引擎除外）</div>
     </div>
   );
 }

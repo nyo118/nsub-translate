@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
-import { BackendClient, type ReconnectPolicy, type SocketLike } from './backend-client.js';
+import { BackendClient, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, type ReconnectPolicy, type SocketLike } from './backend-client.js';
 
 const READY = { type: 'session.ready', sessionId: 'sid', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
 
@@ -149,6 +149,26 @@ describe('BackendClient', () => {
     expect(s.closeCalls).toHaveLength(1);
   });
 
+  it('pings periodically and declares the socket dead when nothing comes back', async () => {
+    vi.setSystemTime(0);
+    const { client, sockets, closes } = setup();
+    const p = client.connect('ws://x', langs, 1000);
+    const s = sockets[0]!;
+    s.open();
+    s.receive(READY);
+    await p;
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    expect(s.sent.filter((m) => JSON.parse(m).type === 'session.ping')).toHaveLength(1);
+    s.receive({ type: 'session.pong', sessionId: 'sid' }); // keeps it alive
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+    expect(closes).toEqual([]);
+    // Now the backend goes silent: after the timeout the client closes and reports.
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_TIMEOUT_MS + HEARTBEAT_INTERVAL_MS);
+    expect(closes).toEqual(['heartbeat timeout']);
+    expect(client.stats.heartbeatTimeouts).toBe(1);
+    expect(client.state).toBe('none');
+  });
+
   it('refuses a second connect while connected', async () => {
     const { client, sockets } = setup();
     const p = client.connect('ws://x', langs, 1000);
@@ -170,7 +190,7 @@ describe('BackendClient', () => {
     await p;
     expect(client.sendAudio(new ArrayBuffer(4))).toBe(true);
     expect(s.binary).toHaveLength(1);
-    expect(client.stats).toEqual({ audioFramesSent: 1, audioFramesDropped: 2 });
+    expect(client.stats).toEqual({ audioFramesSent: 1, audioFramesDropped: 2, heartbeatTimeouts: 0 });
   });
 
   it('reconnects with backoff after an unexpected close and reports the new session', async () => {

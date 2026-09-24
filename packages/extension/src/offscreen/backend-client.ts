@@ -50,6 +50,9 @@ export const DEFAULT_RECONNECT: ReconnectPolicy = { maxAttempts: 5, delaysMs: [5
 
 const OPEN = 1;
 const CONNECT_TIMEOUT_MS = 5000;
+/** Heartbeat: ping every 15 s; no pong (or any message) for 30 s → treat the socket as dead. */
+export const HEARTBEAT_INTERVAL_MS = 15_000;
+export const HEARTBEAT_TIMEOUT_MS = 30_000;
 
 /**
  * One backend connection == one protocol session. `connect()` resolves once
@@ -71,6 +74,9 @@ export class BackendClient {
   private reconnecting = false;
   private audioFramesSent = 0;
   private audioFramesDropped = 0;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastInboundAt = 0;
+  private _heartbeatTimeouts = 0;
 
   constructor(
     events: BackendClientEvents,
@@ -102,8 +108,33 @@ export class BackendClient {
     return this.reconnecting;
   }
 
-  get stats(): { audioFramesSent: number; audioFramesDropped: number } {
-    return { audioFramesSent: this.audioFramesSent, audioFramesDropped: this.audioFramesDropped };
+  get stats(): { audioFramesSent: number; audioFramesDropped: number; heartbeatTimeouts: number } {
+    return { audioFramesSent: this.audioFramesSent, audioFramesDropped: this.audioFramesDropped, heartbeatTimeouts: this._heartbeatTimeouts };
+  }
+
+  private startHeartbeat(socket: SocketLike): void {
+    this.stopHeartbeat();
+    this.lastInboundAt = Date.now();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.socket !== socket) return this.stopHeartbeat();
+      if (Date.now() - this.lastInboundAt > HEARTBEAT_TIMEOUT_MS) {
+        this._heartbeatTimeouts += 1;
+        // Force the close path; onclose then decides whether to reconnect.
+        try {
+          socket.close(4000, 'heartbeat timeout');
+        } catch {
+          /* ignore */
+        }
+        socket.onclose?.({ code: 4000, reason: 'heartbeat timeout' });
+        return;
+      }
+      if (this._sessionId !== null) this.send({ type: 'session.ping', sessionId: this._sessionId });
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   get state(): string {
@@ -146,6 +177,7 @@ export class BackendClient {
         // The close event that follows carries the useful information.
       };
       socket.onmessage = (ev) => {
+        this.lastInboundAt = Date.now();
         const parsed = parseJsonObject(ev.data);
         if (!parsed.ok) return this.events.onInvalid?.(parsed.error);
         const validated = validateServerMessage(parsed.message);
@@ -158,6 +190,7 @@ export class BackendClient {
             this._sessionId = message.sessionId;
             this._asr = message.asr;
             this._translation = message.translation;
+            this.startHeartbeat(socket);
             resolve(message.sessionId);
           } else if (message.type === 'session.error') {
             settled = true;
@@ -171,6 +204,8 @@ export class BackendClient {
         this.events.onMessage(message);
       };
       socket.onclose = (ev) => {
+        if (this.socket === socket || this.socket === null) this.stopHeartbeat();
+        socket.onclose = null; // guard against the synthetic close firing twice
         const wasSettled = settled;
         if (!settled) {
           settled = true;
@@ -265,6 +300,7 @@ export class BackendClient {
   }
 
   private teardown(): void {
+    this.stopHeartbeat();
     const socket = this.socket;
     this.socket = null;
     this._sessionId = null;
