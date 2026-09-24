@@ -51,7 +51,8 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。
 - `TRANSLATION_PROVIDER`：后端**默认**翻译引擎：`hy-mt2`（默认，本机）、`gemini`（AI Studio 免费层）、`llm`（任意 OpenAI 兼容端点）、`google`、`mock`、`none`。popup 的「翻译引擎」下拉可在每次开始时选择，覆盖默认值；所有引擎按需懒加载，默认引擎在启动时预加载。
 - `GEMINI_API_KEY` / `GEMINI_MODEL`（默认 `gemini-3.5-flash-lite`）：在 https://aistudio.google.com/apikey 免费获取，不需要绑卡；免费层有每分钟请求数限制，字幕每句一请求足够。
-- `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`：Groq、OpenRouter、本机 Ollama 等。
+- `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`：任意 OpenAI 兼容端点——Groq、OpenRouter、Ollama，或**局域网另一台机器上的 LM Studio**（例如 `LLM_BASE_URL=http://192.168.50.2:1234`，无路径时自动补 `/v1`；`LLM_API_KEY` 填 LM Studio 的 API token；`LLM_MODEL` 填其模型标识）。实测 LM Studio 上的 Hy-MT2 约 0.4–0.5 s 一句。
+- 云端 / LLM 引擎在首次选用时会先做一次**预热验证**（20 s 内翻译「Hello, welcome.」）：模型名错误、服务不可达会直接在开始时报 `translation_unavailable`；预热超过 6 s 会在后端日志警告「too slow for live subtitles」。**不要**把 `GEMINI_MODEL` 设成思考型或大模型（如 `gemma-4-31b-it`，实测 22 s 一句且输出 `<thought>`），字幕请用 `gemini-3.5-flash-lite`。
 - `TRANSLATION_THREADS`：本机翻译线程数（默认 3）。
 - `GOOGLE_TRANSLATE_API_KEY`：仅 `google` 需要，**只放后端 .env，永不进扩展**。
 - `MODELS_DIR`：模型目录（默认 `packages/server/models`）。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GEMINI_OPENAI_BASE_URL, OpenAiCompatibleAdapter, buildSystemPrompt, createOpenAiCompatibleFactory } from './openai-compatible-adapter.js';
+import { GEMINI_OPENAI_BASE_URL, OpenAiCompatibleAdapter, buildSystemPrompt, createOpenAiCompatibleFactory, normalizeBaseUrl } from './openai-compatible-adapter.js';
+import { cleanOutput } from './text-utils.js';
 
 function fakeFetch(handler: (url: string, init: RequestInit, n: number) => { status: number; body: unknown }): typeof fetch & { calls: number } {
   let calls = 0;
@@ -54,6 +55,23 @@ describe('OpenAiCompatibleAdapter', () => {
     expect(adapter.supportsTarget('zh-TW')).toBe(true);
     expect(adapter.supportsTarget('xx')).toBe(false);
     await expect(createOpenAiCompatibleFactory({ ...base, apiKey: '' }).prepare()).rejects.toThrow(/GEMINI_API_KEY/);
-    await expect(createOpenAiCompatibleFactory(base).prepare()).resolves.toBeUndefined();
+  });
+
+  it('prepare() warms up through the endpoint and reports unusable models clearly', async () => {
+    const ok = fakeFetch(() => ({ status: 200, body: { choices: [{ message: { content: '你好，欢迎。' } }] } }));
+    await expect(createOpenAiCompatibleFactory({ ...base, fetchImpl: ok }).prepare()).resolves.toBeUndefined();
+    expect(ok.calls).toBe(1);
+    const notFound = fakeFetch(() => ({ status: 404, body: { error: { message: 'model not found' } } }));
+    await expect(createOpenAiCompatibleFactory({ ...base, model: 'gemma-4-31b-it', fetchImpl: notFound }).prepare()).rejects.toThrow(/gemma-4-31b-it.*warm-up.*HTTP 404/);
+    await expect(createOpenAiCompatibleFactory({ ...base, baseUrl: 'not a url' }).prepare()).rejects.toThrow(/not a valid URL/);
+  });
+
+  it('normalises base URLs (adds /v1 for bare hosts like LM Studio) and strips thinking blocks', () => {
+    expect(normalizeBaseUrl('http://192.168.50.2:1234')).toBe('http://192.168.50.2:1234/v1');
+    expect(normalizeBaseUrl('http://192.168.50.2:1234/')).toBe('http://192.168.50.2:1234/v1');
+    expect(normalizeBaseUrl('http://192.168.50.2:1234/v1/')).toBe('http://192.168.50.2:1234/v1');
+    expect(normalizeBaseUrl(GEMINI_OPENAI_BASE_URL)).toBe(GEMINI_OPENAI_BASE_URL);
+    expect(cleanOutput('<thought>reasoning…</thought>并赠予他五十枚金币。')).toBe('并赠予他五十枚金币。');
+    expect(cleanOutput('<thought>*   Source: "')).toBe('');
   });
 });

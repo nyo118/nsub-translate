@@ -1,6 +1,7 @@
 /** Models sometimes wrap output in code fences, backticks or quotes; strip them (only when they wrap the whole text). */
 export function cleanOutput(raw: string): string {
-  let s = raw.trim();
+  // Thinking models may leak reasoning blocks; drop them (and any unterminated one).
+  let s = raw.replace(/<thought>[\s\S]*?<\/thought>/gi, '').replace(/<thought>[\s\S]*$/i, '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   s = s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
   s = s.replace(/^`+|`+$/g, '').trim();
   const pairs: Array<[string, string]> = [['"', '"'], ['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ["'", "'"]];

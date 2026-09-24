@@ -9,6 +9,8 @@ export interface TranslationPipelineOptions {
   emit: (message: TranscriptMessage) => void;
   onError: (code: 'translation_failed', message: string) => void;
   onMetrics?: (sample: { translateMs: number; status: 'partial' | 'final' }) => void;
+  /** Every individual failure (before the threshold), for logging. */
+  onFailure?: (info: { segmentId: string; status: 'partial' | 'final'; reason: string; consecutive: number }) => void;
   translatePartials?: boolean;
   /** Minimum interval between partial translations of the same segment. */
   partialIntervalMs?: number;
@@ -54,7 +56,10 @@ interface Job {
  * ones; a final always supersedes a pending partial of its segment.
  */
 export class TranslationPipeline {
-  private readonly o: Required<Omit<TranslationPipelineOptions, 'onMetrics'>> & { onMetrics: NonNullable<TranslationPipelineOptions['onMetrics']> };
+  private readonly o: Required<Omit<TranslationPipelineOptions, 'onMetrics' | 'onFailure'>> & {
+    onMetrics: NonNullable<TranslationPipelineOptions['onMetrics']>;
+    onFailure: NonNullable<TranslationPipelineOptions['onFailure']>;
+  };
   private readonly segments = new Map<string, SegmentState>();
   private readonly finalQueue: Job[] = [];
   private pendingPartial: Job | null = null;
@@ -78,6 +83,7 @@ export class TranslationPipeline {
       contextSize: 2,
       now: () => Date.now(),
       onMetrics: () => {},
+      onFailure: () => {},
       ...options,
     };
   }
@@ -211,11 +217,12 @@ export class TranslationPipeline {
     if (this.stopped) return;
     if (aborted && this.segments.get(job.segmentId)?.text !== job.text) return; // superseded, not a failure
     this.consecutiveFailures += 1;
+    const reason = aborted ? `timed out after ${this.o.timeoutMs} ms` : err instanceof Error ? err.message : String(err);
+    this.o.onFailure({ segmentId: job.segmentId, status: job.status, reason, consecutive: this.consecutiveFailures });
     if (this.consecutiveFailures >= this.o.failureThreshold) {
       this.failed = true;
       this.finalQueue.length = 0;
       this.pendingPartial = null;
-      const reason = aborted ? `timed out after ${this.o.timeoutMs} ms` : err instanceof Error ? err.message : String(err);
       this.o.onError('translation_failed', `translation failed ${this.consecutiveFailures} times in a row (${reason}); continuing with source text only`);
     }
   }

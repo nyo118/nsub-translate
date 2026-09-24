@@ -16,7 +16,23 @@ export interface OpenAiCompatibleConfig {
   fetchImpl?: typeof fetch;
   /** Env variable names for error messages. */
   envHint: string;
+  log?: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
 }
+
+/** Most OpenAI-compatible servers (LM Studio, Ollama, Groq, OpenRouter) live under `/v1`; add it when the URL has no path. */
+export function normalizeBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  try {
+    const u = new URL(trimmed);
+    if (u.pathname === '' || u.pathname === '/') return `${trimmed}/v1`;
+  } catch {
+    /* validated in prepare() */
+  }
+  return trimmed;
+}
+
+/** A translation slower than this at warm-up is flagged: it will not keep up with live subtitles. */
+export const SLOW_WARMUP_MS = 6000;
 
 export const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
 export const GEMINI_DEFAULT_MODEL = 'gemini-3.5-flash-lite';
@@ -31,9 +47,12 @@ export class OpenAiCompatibleAdapter implements TranslationAdapter {
   readonly preferredContextSize = 2;
   private readonly fetchImpl: typeof fetch;
 
+  private readonly baseUrl: string;
+
   constructor(private readonly config: OpenAiCompatibleConfig) {
     this.provider = config.provider;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.baseUrl = normalizeBaseUrl(config.baseUrl);
   }
 
   supportsTarget(targetLanguage: string): boolean {
@@ -47,7 +66,7 @@ export class OpenAiCompatibleAdapter implements TranslationAdapter {
     }
     messages.push({ role: 'user', content: request.text });
     const body = JSON.stringify({ model: this.config.model, temperature: this.config.temperature ?? 0.2, max_tokens: this.config.maxTokens ?? 128, messages });
-    const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+    const url = `${this.baseUrl}/chat/completions`;
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       const init: RequestInit = { method: 'POST', headers: { authorization: `Bearer ${this.config.apiKey}`, 'content-type': 'application/json' }, body };
@@ -80,6 +99,32 @@ export function createOpenAiCompatibleFactory(config: OpenAiCompatibleConfig): T
     async prepare() {
       if (!config.apiKey) throw new Error(`translation provider "${config.provider}" requires ${config.envHint} in the backend environment (packages/server/.env)`);
       if (!config.baseUrl || !config.model) throw new Error(`translation provider "${config.provider}" needs a base URL and a model (${config.envHint})`);
+      try {
+        new URL(config.baseUrl);
+      } catch {
+        throw new Error(`translation provider "${config.provider}": base URL "${config.baseUrl}" is not a valid URL`);
+      }
+      // Warm-up doubles as validation: wrong model names, unreachable servers
+      // and "thinking" models that take 20 s per sentence show up here, not as
+      // silent timeouts during a session.
+      const adapter = new OpenAiCompatibleAdapter(config);
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 20_000);
+      const t0 = Date.now();
+      try {
+        const sample = await adapter.translate({ text: 'Hello, welcome.', sourceLanguage: 'en', targetLanguage: 'zh-CN', context: [], signal: ac.signal });
+        const ms = Date.now() - t0;
+        config.log?.info({ provider: config.provider, model: config.model, ms, sample }, 'translation engine warm-up done');
+        if (ms > SLOW_WARMUP_MS) {
+          config.log?.warn({ provider: config.provider, model: config.model, ms }, `warm-up took ${ms} ms: this model is too slow for live subtitles; pick a faster model (${config.envHint})`);
+        }
+        if (sample.length === 0) throw new Error('empty translation');
+      } catch (err) {
+        const reason = ac.signal.aborted ? 'no answer within 20 s' : err instanceof Error ? err.message : String(err);
+        throw new Error(`translation provider "${config.provider}" (model ${config.model}) failed its warm-up: ${reason}. Check ${config.envHint}.`);
+      } finally {
+        clearTimeout(timer);
+      }
     },
     create: () => new OpenAiCompatibleAdapter(config),
   };

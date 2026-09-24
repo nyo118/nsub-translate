@@ -12,6 +12,7 @@ export interface SessionOptions {
   translatePartials?: boolean;
   send: (message: TranscriptMessage | SessionMetricsMessage) => void;
   onError: (code: 'asr_unavailable' | 'asr_failed' | 'translation_failed', message: string) => void;
+  log?: { warn: (o: Record<string, unknown>, m: string) => void };
   /** Interval for session.metrics messages; 0 disables. */
   metricsIntervalMs?: number;
   now?: () => number;
@@ -62,6 +63,7 @@ export class Session {
       },
       translatePartials: options.translatePartials ?? false,
       contextSize: options.translation.preferredContextSize ?? 2,
+      onFailure: (info) => options.log?.warn({ sessionId: options.sessionId, provider: options.translation.provider, ...info }, 'translation attempt failed'),
     });
     this.onError = options.onError;
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;

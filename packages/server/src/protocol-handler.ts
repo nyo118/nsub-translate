@@ -117,6 +117,7 @@ export class ConnectionHandler {
               adapter: this.asr.create(),
               translation,
               translatePartials: message.options?.translatePartials ?? false,
+              log: this.log,
               send: (m) => this.send(m),
               onError: (code, msg) => {
                 this.error(code, msg);

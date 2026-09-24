@@ -83,9 +83,9 @@ export function createTranslationRegistry(config: ServerConfig, log: BootLog): T
   const registry = new TranslationRegistry(config.translationProvider)
     .register('hy-mt2', () => createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log }))
     .register('gemini', () =>
-      createOpenAiCompatibleFactory({ provider: 'gemini', baseUrl: GEMINI_OPENAI_BASE_URL, apiKey: config.geminiApiKey, model: config.geminiModel, envHint: 'GEMINI_API_KEY (and optionally GEMINI_MODEL)' }),
+      createOpenAiCompatibleFactory({ provider: 'gemini', baseUrl: GEMINI_OPENAI_BASE_URL, apiKey: config.geminiApiKey, model: config.geminiModel, envHint: 'GEMINI_API_KEY (and optionally GEMINI_MODEL)', log }),
     )
-    .register('llm', () => createOpenAiCompatibleFactory({ provider: 'llm', baseUrl: config.llmBaseUrl, apiKey: config.llmApiKey, model: config.llmModel, envHint: 'LLM_BASE_URL, LLM_API_KEY, LLM_MODEL' }))
+    .register('llm', () => createOpenAiCompatibleFactory({ provider: 'llm', baseUrl: config.llmBaseUrl, apiKey: config.llmApiKey, model: config.llmModel, envHint: 'LLM_BASE_URL, LLM_API_KEY, LLM_MODEL', log }))
     .register('google', () => createGoogleTranslationFactory({ apiKey: config.googleTranslateApiKey }))
     .register('none', () => createNoneTranslationFactory())
     .register('mock', () => createMockTranslationFactory());
