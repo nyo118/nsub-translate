@@ -78,7 +78,7 @@ Segmenter → AsrTranscript ─▶ TranslationPipeline.onTranscript()
 Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异步、llama.cpp 自己的线程）→ 去掉反引号/引号
 ```
 
-- **引擎选择**：`TranslationRegistry` 注册 `hy-mt2 / google / none / mock`，默认引擎（`TRANSLATION_PROVIDER`）启动时预加载，其余在首次被会话选用时才 `prepare()`（1 GB 模型只在需要时加载；准备失败不缓存，下次重试）。客户端通过 `session.start.options.translationProvider` 选择；未知或不可用 → `translation_unavailable`。
+- **引擎选择**：`TranslationRegistry` 注册 `hy-mt2 / gemini / llm / google / none / mock`（`gemini` 与 `llm` 共用 `openai-compatible-adapter.ts`：system prompt + 前 2 句作为对话历史，429/5xx 重试一次；`hy-mt2` 使用 `preferredContextSize = 0` 以缩短 prefill），默认引擎（`TRANSLATION_PROVIDER`）启动时预加载，其余在首次被会话选用时才 `prepare()`（1 GB 模型只在需要时加载；准备失败不缓存，下次重试）。客户端通过 `session.start.options.translationProvider` 选择；未知或不可用 → `translation_unavailable`。
 - **协议 v4**：`session.start.options.translationProvider`。
 - **协议 v3**：`session.start.options.translatePartials`；`session.ready.translation{provider,targetLanguage}`；`session.metrics` 增加 `translated / avgTranslateMs / translationBacklog`；错误码 `translation_unavailable / translation_failed / unsupported_language`。
 - **为什么不用 worker**：node-llama-cpp 的推理在原生线程执行、JS API 为 async，不会阻塞事件循环；模型与 context 全局共享，`HyMt2Runtime.lock` 保证跨会话串行。

@@ -21,6 +21,8 @@ export interface TranslationRequest {
  */
 export interface TranslationAdapter {
   readonly provider: string;
+  /** How many previous finals this engine wants as context (default 2). */
+  readonly preferredContextSize?: number;
   /** Whether this target language is supported; unsupported targets fail the session start. */
   supportsTarget(targetLanguage: string): boolean;
   translate(request: TranslationRequest): Promise<string>;

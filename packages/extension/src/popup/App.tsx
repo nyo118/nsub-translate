@@ -141,7 +141,8 @@ export function App() {
       snapshot.targetLanguage !== settings.targetLanguage ||
       (snapshot.translatePartials !== undefined && snapshot.translatePartials !== settings.translatePartials) ||
       (snapshot.translation !== undefined && snapshot.translation.provider !== settings.translationEngine));
-  const providerName = (p: string | undefined) => (p === 'sensevoice' ? 'SenseVoice' : p === 'hy-mt2' ? 'Hy-MT2' : p === 'google' ? 'Google' : p === 'none' ? '无' : p ?? '…');
+  const providerName = (p: string | undefined) =>
+    p === 'sensevoice' ? 'SenseVoice' : p === 'hy-mt2' ? 'Hy-MT2' : p === 'gemini' ? 'Gemini' : p === 'llm' ? 'LLM' : p === 'google' ? 'Google' : p === 'none' ? '无' : p ?? '…';
 
   return (
     <div className="app">

@@ -119,6 +119,7 @@
 | P3-11 | popup「翻译引擎」选 Google，后端**未配** key，开始 | popup 报 `translation_unavailable … GOOGLE_TRANSLATE_API_KEY`，状态回 Ready |
 | P3-12 | 在 `packages/server/.env` 写入 key、重启后端、再选 Google 开始 | popup 显示「翻译 Google · 0.x s」，译文明显更快 |
 | P3-13 | 会话中切换引擎 | 当前会话不变，popup 提示「新设置将在下次开始时生效」 |
+| P3-14 | 引擎选 Gemini（.env 已有 GEMINI_API_KEY） | popup「翻译 Gemini · ~1 s」，译文明显快于本机 |
 
 ## 结果记录
 

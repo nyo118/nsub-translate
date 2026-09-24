@@ -37,6 +37,7 @@ describe('normalizeSettings', () => {
   });
   it('normalises the translation engine', () => {
     expect(normalizeSettings({ translationEngine: 'google' }).translationEngine).toBe('google');
+    expect(normalizeSettings({ translationEngine: 'gemini' }).translationEngine).toBe('gemini');
     expect(normalizeSettings({ translationEngine: 'deepl' }).translationEngine).toBe('hy-mt2');
   });
   it('normalises translatePartials to a boolean', () => {

@@ -2,7 +2,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export type AsrProviderName = 'sensevoice' | 'mock';
-export type TranslationProviderName = 'hy-mt2' | 'google' | 'mock' | 'none';
+export type TranslationProviderName = 'hy-mt2' | 'gemini' | 'llm' | 'google' | 'mock' | 'none';
+export const TRANSLATION_PROVIDERS: readonly TranslationProviderName[] = ['hy-mt2', 'gemini', 'llm', 'google', 'mock', 'none'];
 
 export interface ServerConfig {
   host: string;
@@ -21,6 +22,13 @@ export interface ServerConfig {
   translationThreads: number;
   /** Google Cloud Translation API key (backend-only secret). */
   googleTranslateApiKey: string;
+  /** Gemini (AI Studio) API key and model. */
+  geminiApiKey: string;
+  geminiModel: string;
+  /** Generic OpenAI-compatible endpoint (Groq, OpenRouter, Ollama, …). */
+  llmBaseUrl: string;
+  llmApiKey: string;
+  llmModel: string;
 }
 
 /** packages/server/models by default (works from src via tsx and from dist). */
@@ -39,9 +47,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   if (provider !== 'sensevoice' && provider !== 'mock') {
     throw new Error(`ASR_PROVIDER must be "sensevoice" or "mock" (got "${provider}")`);
   }
-  const translation = env['TRANSLATION_PROVIDER'] ?? 'hy-mt2';
-  if (translation !== 'hy-mt2' && translation !== 'google' && translation !== 'mock' && translation !== 'none') {
-    throw new Error(`TRANSLATION_PROVIDER must be "hy-mt2", "google", "mock" or "none" (got "${translation}")`);
+  const translation = (env['TRANSLATION_PROVIDER'] ?? 'hy-mt2') as TranslationProviderName;
+  if (!TRANSLATION_PROVIDERS.includes(translation)) {
+    throw new Error(`TRANSLATION_PROVIDER must be one of ${TRANSLATION_PROVIDERS.join(', ')} (got "${translation}")`);
   }
   return {
     // Bind to loopback only: the backend must never be reachable from the LAN.
@@ -55,5 +63,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     translationProvider: translation,
     translationThreads: int(env['TRANSLATION_THREADS'], 3),
     googleTranslateApiKey: env['GOOGLE_TRANSLATE_API_KEY'] ?? '',
+    geminiApiKey: env['GEMINI_API_KEY'] ?? '',
+    geminiModel: env['GEMINI_MODEL'] ?? 'gemini-3.5-flash-lite',
+    llmBaseUrl: env['LLM_BASE_URL'] ?? '',
+    llmApiKey: env['LLM_API_KEY'] ?? '',
+    llmModel: env['LLM_MODEL'] ?? '',
   };
 }

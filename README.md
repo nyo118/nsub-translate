@@ -49,7 +49,9 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 
 后端环境变量（可写在 `packages/server/.env`，见 `.env.example`；`.env` 不入库）：
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。
-- `TRANSLATION_PROVIDER`：后端**默认**翻译引擎，`hy-mt2`（默认，本机翻译）、`google`、`mock`、`none`。popup 的「翻译引擎」下拉可在每次开始时选择 `hy-mt2` 或 `google`，覆盖默认值；所有引擎按需懒加载，默认引擎在启动时预加载。
+- `TRANSLATION_PROVIDER`：后端**默认**翻译引擎：`hy-mt2`（默认，本机）、`gemini`（AI Studio 免费层）、`llm`（任意 OpenAI 兼容端点）、`google`、`mock`、`none`。popup 的「翻译引擎」下拉可在每次开始时选择，覆盖默认值；所有引擎按需懒加载，默认引擎在启动时预加载。
+- `GEMINI_API_KEY` / `GEMINI_MODEL`（默认 `gemini-3.5-flash-lite`）：在 https://aistudio.google.com/apikey 免费获取，不需要绑卡；免费层有每分钟请求数限制，字幕每句一请求足够。
+- `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`：Groq、OpenRouter、本机 Ollama 等。
 - `TRANSLATION_THREADS`：本机翻译线程数（默认 3）。
 - `GOOGLE_TRANSLATE_API_KEY`：仅 `google` 需要，**只放后端 .env，永不进扩展**。
 - `MODELS_DIR`：模型目录（默认 `packages/server/models`）。
@@ -121,6 +123,8 @@ npm run build
 - 字幕层显示最近 2 段；若两段都还没有译文，会把最近一条已翻译的句子保留在上方，避免译文因延迟永远看不到。
 - 「边说边翻译」开关（popup）：开启后未说完的句子每 ≥ 2 s 也翻译一次，译文会反复变化且更耗 CPU；默认关闭。**自适应**：翻译一句的平均耗时超过 2 s 时自动只翻 final，速度恢复后再翻 partial。
 - 性能：i7-8559U 上一句 1.5–4.5 s（机器空闲时更快）。翻译进行中会与识别争抢 CPU，识别延迟可能从 0.4 s 升到 1 s。
+- **推荐云端方案：Gemini（AI Studio 免费层）**——popup 选「Gemini」，后端 `.env` 写 `GEMINI_API_KEY`；实测 `gemini-3.5-flash-lite` 约 1 s 一句、译文自然。429/5xx 会重试一次。
+- 本机模型的提示词已去掉上下文、译文上限 128 token，以缩短首 token 时间。更小的社区量化（mradermacher IQ3_XS / Q3_K_S）实测 EOS 配置有误、会一直生成到上限（反而慢 5–10 倍），因此**没有提供「小模型」选项**；官方 2-bit 需要未合入的 llama.cpp 内核。
 - Google 方案：在 popup「翻译引擎」选「Google 翻译 API」，并在 `packages/server/.env` 写入 `GOOGLE_TRANSLATE_API_KEY=...`（重启后端生效）；延迟约 0.3 s，不占本机 CPU，每月前 50 万字符免费。key 只存在后端，扩展看不到。未配置 key 时选择 Google 会在开始时报 `translation_unavailable` 并提示。
 
 ## 已知限制（Phase 3）

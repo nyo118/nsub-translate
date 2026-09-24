@@ -61,6 +61,7 @@ export class Session {
         if (this.translateWindow.length > 20) this.translateWindow.shift();
       },
       translatePartials: options.translatePartials ?? false,
+      contextSize: options.translation.preferredContextSize ?? 2,
     });
     this.onError = options.onError;
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;

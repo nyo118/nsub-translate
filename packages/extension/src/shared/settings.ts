@@ -52,11 +52,13 @@ export interface SubtitleStyle {
   showTranslated: boolean;
 }
 
-export type TranslationEngine = 'hy-mt2' | 'google';
+export type TranslationEngine = 'hy-mt2' | 'gemini' | 'llm' | 'google';
 
 export const TRANSLATION_ENGINES: ReadonlyArray<{ code: TranslationEngine; label: string; hint: string }> = [
-  { code: 'hy-mt2', label: '本机 AI 翻译（Hy-MT2）', hint: '免费、离线，速度取决于电脑性能。' },
-  { code: 'google', label: 'Google 翻译 API', hint: '快且准确；需在后端 packages/server/.env 设置 GOOGLE_TRANSLATE_API_KEY，每月前 50 万字符免费。' },
+  { code: 'gemini', label: 'Gemini（AI Studio 免费层）', hint: '约 1 s 一句、质量好；需在后端 packages/server/.env 设置 GEMINI_API_KEY（AI Studio 免费获取，无需绑卡）。' },
+  { code: 'hy-mt2', label: '本机 AI 翻译（Hy-MT2）', hint: '免费、离线，速度取决于电脑性能（约 2–5 s 一句）。' },
+  { code: 'llm', label: '自定义 LLM（OpenAI 兼容）', hint: 'Groq / OpenRouter / Ollama 等；需在后端 .env 设置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL。' },
+  { code: 'google', label: 'Google 翻译 API', hint: '需 GCP 账号与 billing；后端 .env 设置 GOOGLE_TRANSLATE_API_KEY。' },
 ];
 
 export interface Settings {
