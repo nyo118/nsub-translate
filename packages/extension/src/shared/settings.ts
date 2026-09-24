@@ -52,10 +52,19 @@ export interface SubtitleStyle {
   showTranslated: boolean;
 }
 
+export type TranslationEngine = 'hy-mt2' | 'google';
+
+export const TRANSLATION_ENGINES: ReadonlyArray<{ code: TranslationEngine; label: string; hint: string }> = [
+  { code: 'hy-mt2', label: '本机 AI 翻译（Hy-MT2）', hint: '免费、离线，速度取决于电脑性能。' },
+  { code: 'google', label: 'Google 翻译 API', hint: '快且准确；需在后端 packages/server/.env 设置 GOOGLE_TRANSLATE_API_KEY，每月前 50 万字符免费。' },
+];
+
 export interface Settings {
   version: typeof SETTINGS_VERSION;
   sourceLanguage: string;
   targetLanguage: string;
+  /** Translation engine, sent to the backend at start. */
+  translationEngine: TranslationEngine;
   /** Also translate in-progress sentences (more CPU). Applies on next start. */
   translatePartials: boolean;
   style: SubtitleStyle;
@@ -79,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
   sourceLanguage: AUTO_DETECT,
   targetLanguage: 'zh-CN',
+  translationEngine: 'hy-mt2',
   translatePartials: false,
   style: { ...DEFAULT_STYLE },
 };
@@ -104,6 +114,7 @@ export function normalizeSettings(raw: unknown): Settings {
     version: SETTINGS_VERSION,
     sourceLanguage: language(r['sourceLanguage'], SOURCE_LANGUAGES, DEFAULT_SETTINGS.sourceLanguage),
     targetLanguage: language(r['targetLanguage'], TARGET_LANGUAGES, DEFAULT_SETTINGS.targetLanguage),
+    translationEngine: TRANSLATION_ENGINES.some((e) => e.code === r['translationEngine']) ? (r['translationEngine'] as TranslationEngine) : DEFAULT_SETTINGS.translationEngine,
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
     style: {
       fontSize: clamp(s['fontSize'], DEFAULT_STYLE.fontSize, STYLE_LIMITS.fontSize.min, STYLE_LIMITS.fontSize.max),

@@ -17,7 +17,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const calls: string[] = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
-    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false }),
+    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2' }),
     saveState: async (s) => {
       stored.value = s;
     },
@@ -92,7 +92,7 @@ describe('SessionManager', () => {
     expect(snap.sourceLanguage).toBe('ja');
     expect(snap.targetLanguage).toBe('zh-TW');
     // Settings changed after start must not affect the running session's snapshot.
-    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true });
+    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true, translationProvider: 'google' });
     expect((await m.snapshot()).targetLanguage).toBe('zh-TW');
   });
 

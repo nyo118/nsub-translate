@@ -79,7 +79,7 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     log('tab audio captured', { tracks: localCapture.stream.getAudioTracks().length, audioContext: localCapture.context.state });
     const sessionId = await localClient.connect(
       req.backendUrl,
-      { sourceLanguage: req.sourceLanguage, targetLanguage: req.targetLanguage, options: { translatePartials: req.translatePartials } },
+      { sourceLanguage: req.sourceLanguage, targetLanguage: req.targetLanguage, options: { translatePartials: req.translatePartials, translationProvider: req.translationProvider } },
       SESSION_READY_TIMEOUT_MS,
     );
     capture = localCapture;

@@ -64,7 +64,7 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 3, ...langs, audio: AUDIO_FORMAT });
+    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 4, ...langs, audio: AUDIO_FORMAT });
     s.receive(READY);
     await expect(p).resolves.toBe('sid');
     expect(client.sessionId).toBe('sid');
@@ -74,9 +74,9 @@ describe('BackendClient', () => {
 
   it('forwards session options in session.start', async () => {
     const { client, sockets } = setup();
-    void client.connect('ws://x', { ...langs, options: { translatePartials: true } }, 1000).catch(() => undefined);
+    void client.connect('ws://x', { ...langs, options: { translatePartials: true, translationProvider: 'google' } }, 1000).catch(() => undefined);
     sockets[0]!.open();
-    expect(JSON.parse(sockets[0]!.sent[0]!).options).toEqual({ translatePartials: true });
+    expect(JSON.parse(sockets[0]!.sent[0]!).options).toEqual({ translatePartials: true, translationProvider: 'google' });
   });
 
   it('rejects when the backend cannot be reached (socket closes before ready)', async () => {

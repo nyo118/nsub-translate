@@ -49,7 +49,7 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 
 后端环境变量（可写在 `packages/server/.env`，见 `.env.example`；`.env` 不入库）：
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。
-- `TRANSLATION_PROVIDER`：`hy-mt2`（默认，本机翻译）、`google`（需 `GOOGLE_TRANSLATE_API_KEY`，每月前 50 万字符免费）、`mock`、`none`（只显示原文）。
+- `TRANSLATION_PROVIDER`：后端**默认**翻译引擎，`hy-mt2`（默认，本机翻译）、`google`、`mock`、`none`。popup 的「翻译引擎」下拉可在每次开始时选择 `hy-mt2` 或 `google`，覆盖默认值；所有引擎按需懒加载，默认引擎在启动时预加载。
 - `TRANSLATION_THREADS`：本机翻译线程数（默认 3）。
 - `GOOGLE_TRANSLATE_API_KEY`：仅 `google` 需要，**只放后端 .env，永不进扩展**。
 - `MODELS_DIR`：模型目录（默认 `packages/server/models`）。
@@ -101,7 +101,7 @@ npm run build
 
 ## 设置（Phase 1）
 
-- **来源 / 翻译成**：来源含 `Auto Detect`；语言改动**在下次开始时生效**，会话进行中修改不会影响当前会话（popup 会提示）。
+- **来源 / 翻译成 / 翻译引擎**：来源含 `Auto Detect`；翻译引擎可选「本机 AI 翻译（Hy-MT2）」或「Google 翻译 API」。这些改动**在下次开始时生效**，会话进行中修改不会影响当前会话（popup 会提示）。
 - **字幕样式**（点「字幕样式 ›」展开）：字体大小、字幕位置（距播放器底部的百分比）、背景透明度、显示原文、显示翻译、恢复默认。样式改动**立即生效**，包括会话进行中。
 - 所有设置存放在 `chrome.storage.local`，重启 Chrome 后保留；损坏或旧版本的数据会被自动修正为合法值。
 
@@ -121,7 +121,7 @@ npm run build
 - 字幕层显示最近 2 段；若两段都还没有译文，会把最近一条已翻译的句子保留在上方，避免译文因延迟永远看不到。
 - 「边说边翻译」开关（popup）：开启后未说完的句子每 ≥ 2 s 也翻译一次，译文会反复变化且更耗 CPU；默认关闭。**自适应**：翻译一句的平均耗时超过 2 s 时自动只翻 final，速度恢复后再翻 partial。
 - 性能：i7-8559U 上一句 1.5–4.5 s（机器空闲时更快）。翻译进行中会与识别争抢 CPU，识别延迟可能从 0.4 s 升到 1 s。
-- Google 方案：`TRANSLATION_PROVIDER=google` + `.env` 中的 key；延迟约 0.3 s，不占本机 CPU。
+- Google 方案：在 popup「翻译引擎」选「Google 翻译 API」，并在 `packages/server/.env` 写入 `GOOGLE_TRANSLATE_API_KEY=...`（重启后端生效）；延迟约 0.3 s，不占本机 CPU，每月前 50 万字符免费。key 只存在后端，扩展看不到。未配置 key 时选择 Google 会在开始时报 `translation_unavailable` 并提示。
 
 ## 已知限制（Phase 3）
 

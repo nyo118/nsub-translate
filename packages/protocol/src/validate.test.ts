@@ -27,6 +27,9 @@ describe('validateClientMessage', () => {
     const r = validateClientMessage({ ...start, options: { translatePartials: true } });
     expect(r.ok && r.message.type === 'session.start' && r.message.options).toEqual({ translatePartials: true });
     expect(validateClientMessage({ ...start, options: {} }).ok).toBe(true);
+    const withProvider = validateClientMessage({ ...start, options: { translationProvider: 'google' } });
+    expect(withProvider.ok && withProvider.message.type === 'session.start' && withProvider.message.options).toEqual({ translatePartials: false, translationProvider: 'google' });
+    expect(validateClientMessage({ ...start, options: { translationProvider: '' } }).ok).toBe(false);
     expect(validateClientMessage({ ...start, options: { translatePartials: 'yes' } }).ok).toBe(false);
   });
   it('requires the v2 audio format', () => {
@@ -36,7 +39,7 @@ describe('validateClientMessage', () => {
     expect(validateClientMessage({ ...start, audio: { ...AUDIO_FORMAT, encoding: 'opus' } }).ok).toBe(false);
   });
   it('rejects a wrong protocol version', () => {
-    const result = validateClientMessage({ ...start, protocolVersion: 2 });
+    const result = validateClientMessage({ ...start, protocolVersion: 3 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/protocolVersion/);
   });

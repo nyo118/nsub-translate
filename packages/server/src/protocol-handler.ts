@@ -8,7 +8,7 @@ import {
 } from '@lst/protocol';
 import { Session } from './session.js';
 import type { AsrAdapterFactory } from './asr/types.js';
-import type { TranslationAdapterFactory } from './translation/types.js';
+import type { TranslationRegistry } from './translation/registry.js';
 
 export interface ConnectionLogger {
   info: (obj: Record<string, unknown>, msg: string) => void;
@@ -18,7 +18,7 @@ export interface ConnectionLogger {
 export interface ConnectionHandlerOptions {
   send: (message: ServerMessage) => void;
   asr: AsrAdapterFactory;
-  translation: TranslationAdapterFactory;
+  translation: TranslationRegistry;
   log: ConnectionLogger;
   newSessionId?: () => string;
   metricsIntervalMs?: number;
@@ -34,7 +34,7 @@ export class ConnectionHandler {
   private starting = false;
   private readonly send: (message: ServerMessage) => void;
   private readonly asr: AsrAdapterFactory;
-  private readonly translation: TranslationAdapterFactory;
+  private readonly translation: TranslationRegistry;
   private readonly log: ConnectionLogger;
   private readonly newSessionId: () => string;
   private readonly metricsIntervalMs: number;
@@ -100,38 +100,44 @@ export class ConnectionHandler {
           this.error('session_already_started', `a session is already active on this connection`);
           return;
         }
-        const translation = this.translation.create();
-        if (!translation.supportsTarget(message.targetLanguage)) {
-          this.error('unsupported_language', `target language "${message.targetLanguage}" is not supported by the ${translation.provider} translator`);
-          return;
-        }
-        const sessionId = this.newSessionId();
-        const session = new Session({
-          sessionId,
-          sourceLanguage: message.sourceLanguage,
-          targetLanguage: message.targetLanguage,
-          adapter: this.asr.create(),
-          translation,
-          translatePartials: message.options?.translatePartials ?? false,
-          send: (m) => this.send(m),
-          onError: (code, msg) => {
-            this.error(code, msg);
-            // Translation failures degrade to source-only subtitles; ASR failures end the session.
-            if (code !== 'translation_failed') void this.stopSession(`asr error: ${code}`);
-          },
-          metricsIntervalMs: this.metricsIntervalMs,
-        });
         this.starting = true;
-        void session
-          .start()
-          .then((asr) => {
-            this.session = session;
-            const translationInfo = session.translationInfo;
-            this.log.info({ sessionId, sourceLanguage: message.sourceLanguage, targetLanguage: message.targetLanguage, asr, translation: translationInfo, translatePartials: message.options?.translatePartials ?? false }, 'session started');
-            this.send({ type: 'session.ready', sessionId, asr, translation: translationInfo });
+        const providerName = message.options?.translationProvider ?? this.translation.defaultProvider;
+        void this.translation
+          .get(providerName)
+          .then((factory) => {
+            const translation = factory.create();
+            if (!translation.supportsTarget(message.targetLanguage)) {
+              throw Object.assign(new Error(`target language "${message.targetLanguage}" is not supported by the ${translation.provider} translator`), { code: 'unsupported_language' });
+            }
+            const sessionId = this.newSessionId();
+            const session = new Session({
+              sessionId,
+              sourceLanguage: message.sourceLanguage,
+              targetLanguage: message.targetLanguage,
+              adapter: this.asr.create(),
+              translation,
+              translatePartials: message.options?.translatePartials ?? false,
+              send: (m) => this.send(m),
+              onError: (code, msg) => {
+                this.error(code, msg);
+                // Translation failures degrade to source-only subtitles; ASR failures end the session.
+                if (code !== 'translation_failed') void this.stopSession(`asr error: ${code}`);
+              },
+              metricsIntervalMs: this.metricsIntervalMs,
+            });
+            return session.start().then((asr) => {
+              this.session = session;
+              const translationInfo = session.translationInfo;
+              this.log.info({ sessionId, sourceLanguage: message.sourceLanguage, targetLanguage: message.targetLanguage, asr, translation: translationInfo, translatePartials: message.options?.translatePartials ?? false }, 'session started');
+              this.send({ type: 'session.ready', sessionId, asr, translation: translationInfo });
+            });
           })
           .catch((err: unknown) => {
-            this.error('asr_unavailable', err instanceof Error ? err.message : String(err));
+            const code = (err as { code?: SessionErrorCode }).code;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (code === 'unsupported_language') this.error(code, msg);
+            else if (/translation provider|API_KEY|translation model/i.test(msg)) this.error('translation_unavailable', msg);
+            else this.error('asr_unavailable', msg);
           })
           .finally(() => {
             this.starting = false;

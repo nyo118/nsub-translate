@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground, SessionSnapshot, ToContent } from '../shared/messages.js';
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_SETTINGS, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle } from '../shared/settings.js';
+import { DEFAULT_SETTINGS, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
 
 const POLL_MS = 250;
 const settingsStore = new SettingsStore();
@@ -70,11 +70,16 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The service worker may still be waking up when the popup opens; only
+  // report it as unreachable after several consecutive failures.
+  const failures = useRef(0);
   const refresh = useCallback(async () => {
     try {
       setSnapshot(await askBackground<SessionSnapshot>({ target: 'background', type: 'popup.getStatus' }));
+      failures.current = 0;
     } catch (err) {
-      setError(`Background unreachable: ${String(err)}`);
+      failures.current += 1;
+      if (failures.current >= 3) setError(`Background unreachable: ${String(err)}`);
     }
   }, []);
 
@@ -134,7 +139,8 @@ export function App() {
     snapshot !== null &&
     (snapshot.sourceLanguage !== settings.sourceLanguage ||
       snapshot.targetLanguage !== settings.targetLanguage ||
-      (snapshot.translatePartials !== undefined && snapshot.translatePartials !== settings.translatePartials));
+      (snapshot.translatePartials !== undefined && snapshot.translatePartials !== settings.translatePartials) ||
+      (snapshot.translation !== undefined && snapshot.translation.provider !== settings.translationEngine));
   const providerName = (p: string | undefined) => (p === 'sensevoice' ? 'SenseVoice' : p === 'hy-mt2' ? 'Hy-MT2' : p === 'google' ? 'Google' : p === 'none' ? '无' : p ?? '…');
 
   return (
@@ -174,12 +180,23 @@ export function App() {
             </select>
           </div>
         </div>
+        <div className="field">
+          <label htmlFor="engine">翻译引擎</label>
+          <select id="engine" value={settings.translationEngine} onChange={(e) => updateSettings({ translationEngine: e.target.value as TranslationEngine })}>
+            {TRANSLATION_ENGINES.map((e) => (
+              <option key={e.code} value={e.code}>
+                {e.label}
+              </option>
+            ))}
+          </select>
+          <div className="field-hint">{TRANSLATION_ENGINES.find((e) => e.code === settings.translationEngine)?.hint}</div>
+        </div>
         <label className="check subtle">
-          <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；下次开始时生效）
+          <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；翻译跟不上时自动只翻整句；下次开始时生效）
         </label>
         {languagesPending && snapshot && (
           <div className="pending">
-            当前会话仍使用 {languageLabel(snapshot.sourceLanguage ?? '')} → {languageLabel(snapshot.targetLanguage ?? '')}，新语言将在下次开始时生效。
+            当前会话仍使用 {languageLabel(snapshot.sourceLanguage ?? '')} → {languageLabel(snapshot.targetLanguage ?? '')}（{providerName(snapshot.translation?.provider)}），新设置将在下次开始时生效。
           </div>
         )}
         <div className="actions">

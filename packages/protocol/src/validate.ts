@@ -111,7 +111,14 @@ function validateOptions(value: unknown): ParseResult<SessionOptions> {
   if (value['translatePartials'] !== undefined && typeof value['translatePartials'] !== 'boolean') {
     return { ok: false, error: 'options.translatePartials must be a boolean' };
   }
-  return { ok: true, message: { translatePartials: value['translatePartials'] === true } };
+  const options: SessionOptions = { translatePartials: value['translatePartials'] === true };
+  if (value['translationProvider'] !== undefined) {
+    if (!isNonEmptyString(value['translationProvider']) || value['translationProvider'].length > 32) {
+      return { ok: false, error: 'options.translationProvider must be a short non-empty string' };
+    }
+    options.translationProvider = value['translationProvider'];
+  }
+  return { ok: true, message: options };
 }
 
 function validateTranslationInfo(value: unknown): ParseResult<TranslationInfo> {

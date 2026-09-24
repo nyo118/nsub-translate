@@ -59,7 +59,7 @@ const settingsStore = new SettingsStore();
 export const chromePorts: SessionPorts = {
   async loadLanguages() {
     const s = await settingsStore.load();
-    return { sourceLanguage: s.sourceLanguage, targetLanguage: s.targetLanguage, translatePartials: s.translatePartials };
+    return { sourceLanguage: s.sourceLanguage, targetLanguage: s.targetLanguage, translatePartials: s.translatePartials, translationProvider: s.translationEngine };
   },
   async loadState() {
     const result = await chrome.storage.session.get(STORAGE_KEY);

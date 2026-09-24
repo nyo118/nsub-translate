@@ -6,14 +6,14 @@ import type { AsrAdapterFactory } from './asr/types.js';
 import type { ServerConfig } from './config.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createSherpaFactory } from './asr/sherpa-adapter.js';
-import type { TranslationAdapterFactory } from './translation/types.js';
 import { createMockTranslationFactory, createNoneTranslationFactory } from './translation/mock-adapter.js';
 import { createGoogleTranslationFactory } from './translation/google-adapter.js';
 import { createHyMt2Factory } from './translation/hymt2-adapter.js';
+import { TranslationRegistry } from './translation/registry.js';
 
 export interface AppOptions {
   asr: AsrAdapterFactory;
-  translation: TranslationAdapterFactory;
+  translation: TranslationRegistry;
   logger?: boolean;
   metricsIntervalMs?: number;
 }
@@ -26,7 +26,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   let openConnections = 0;
 
-  app.get('/healthz', async () => ({ ok: true, openConnections, asrProvider: options.asr.provider, translationProvider: options.translation.provider }));
+  app.get('/healthz', async () => ({
+    ok: true,
+    openConnections,
+    asrProvider: options.asr.provider,
+    translationProvider: options.translation.defaultProvider,
+    translationProviders: options.translation.providers,
+  }));
 
   app.get('/ws', { websocket: true }, (socket, req) => {
     openConnections += 1;
@@ -68,28 +74,28 @@ export function createAsrFactory(config: ServerConfig, log: BootLog): AsrAdapter
     : createSherpaFactory({ modelsDir: config.modelsDir, numThreads: config.asrThreads, log });
 }
 
-export function createTranslationFactory(config: ServerConfig, log: BootLog): TranslationAdapterFactory & { dispose?: () => Promise<void> } {
-  switch (config.translationProvider) {
-    case 'mock':
-      return createMockTranslationFactory();
-    case 'none':
-      return createNoneTranslationFactory();
-    case 'google':
-      return createGoogleTranslationFactory({ apiKey: config.googleTranslateApiKey });
-    case 'hy-mt2':
-      return createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log });
-  }
+/**
+ * Every engine the client may select. The default (TRANSLATION_PROVIDER) is
+ * prepared at startup; the others load lazily on first use.
+ */
+export function createTranslationRegistry(config: ServerConfig, log: BootLog): TranslationRegistry {
+  const registry = new TranslationRegistry(config.translationProvider)
+    .register('hy-mt2', () => createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log }))
+    .register('google', () => createGoogleTranslationFactory({ apiKey: config.googleTranslateApiKey }))
+    .register('none', () => createNoneTranslationFactory())
+    .register('mock', () => createMockTranslationFactory());
+  return registry;
 }
 
 export async function startServer(config: ServerConfig): Promise<FastifyInstance> {
   const bootLog: BootLog = { info: (o, m) => console.info(m, o), warn: (o, m) => console.warn(m, o) };
   const asr = createAsrFactory(config, bootLog);
-  const translation = createTranslationFactory(config, bootLog);
+  const translation = createTranslationRegistry(config, bootLog);
   await asr.prepare();
-  await translation.prepare();
+  await translation.get(); // default engine ready before the first session
   const app = await buildApp({ asr, translation, metricsIntervalMs: config.metricsIntervalMs });
-  if (translation.dispose) app.addHook('onClose', async () => translation.dispose?.());
+  app.addHook('onClose', async () => translation.dispose());
   await app.listen({ host: config.host, port: config.port });
-  app.log.info({ asrProvider: asr.provider, translationProvider: translation.provider }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
+  app.log.info({ asrProvider: asr.provider, translationProvider: translation.defaultProvider, translationProviders: translation.providers }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
   return app;
 }

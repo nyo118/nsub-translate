@@ -3,20 +3,28 @@ import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
 import { ConnectionHandler } from './protocol-handler.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createMockTranslationFactory } from './translation/mock-adapter.js';
+import { TranslationRegistry } from './translation/registry.js';
+import type { TranslationAdapterFactory } from './translation/types.js';
 
 const log = { info: () => {}, warn: () => {} };
-const START = JSON.stringify({ type: 'session.start', protocolVersion: 3, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const START = JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
 const READY = { type: 'session.ready', sessionId: 'sid-1', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
+
+function mockRegistry(extra: Record<string, () => TranslationAdapterFactory> = {}) {
+  const reg = new TranslationRegistry('mock').register('mock', () => createMockTranslationFactory(10));
+  for (const [name, b] of Object.entries(extra)) reg.register(name, b);
+  return reg;
+}
 
 function make() {
   const sent: ServerMessage[] = [];
-  const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: createMockTranslationFactory(10), log, newSessionId: () => 'sid-1', metricsIntervalMs: 0 });
+  const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: mockRegistry(), log, newSessionId: () => 'sid-1', metricsIntervalMs: 0 });
   return { sent, handler };
 }
 
 /** session.start resolves asynchronously (adapter.start is a promise); flush microtasks. */
 async function settle() {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  for (let i = 0; i < 12; i++) await Promise.resolve();
 }
 
 describe('ConnectionHandler', () => {
@@ -36,7 +44,7 @@ describe('ConnectionHandler', () => {
     const { sent, handler } = make();
     handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 99, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT }));
     expect(sent[0]).toMatchObject({ type: 'session.error', code: 'unsupported_protocol_version' });
-    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 3, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
+    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
     expect(sent[1]).toMatchObject({ type: 'session.error', code: 'unsupported_audio_format' });
   });
 
@@ -91,17 +99,40 @@ describe('ConnectionHandler', () => {
     await handler.dispose('test');
   });
 
-  it('rejects a target language the translator does not support', () => {
+  it('rejects a target language the translator does not support', async () => {
     const sent: ServerMessage[] = [];
-    const handler = new ConnectionHandler({
-      send: (m) => sent.push(m),
-      asr: createMockFactory(50),
-      translation: { provider: 't', prepare: async () => {}, create: () => ({ provider: 't', supportsTarget: (l) => l === 'en', translate: async () => '', dispose: async () => {} }) },
-      log,
-    });
+    const reg = new TranslationRegistry('t').register('t', () => ({ provider: 't', prepare: async () => {}, create: () => ({ provider: 't', supportsTarget: (l) => l === 'en', translate: async () => '', dispose: async () => {} }) }));
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: reg, log });
     handler.handleFrame(START);
+    await settle();
     expect(sent[0]).toMatchObject({ type: 'session.error', code: 'unsupported_language' });
     expect(handler.activeSessionId).toBeNull();
+  });
+
+  it('lets the client choose the translation engine and reports unavailable ones', async () => {
+    const sent: ServerMessage[] = [];
+    const reg = mockRegistry({
+      other: () => ({ provider: 'other', prepare: async () => {}, create: () => ({ provider: 'other', supportsTarget: () => true, translate: async () => 'x', dispose: async () => {} }) }),
+      google: () => ({ provider: 'google', prepare: async () => { throw new Error('TRANSLATION_PROVIDER=google requires GOOGLE_TRANSLATE_API_KEY'); }, create: () => { throw new Error('unreachable'); } }),
+    });
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: reg, log, newSessionId: () => 'sid-1', metricsIntervalMs: 0 });
+    handler.handleFrame(JSON.stringify({ ...JSON.parse(START), options: { translationProvider: 'other' } }));
+    await settle();
+    expect(sent[0]).toMatchObject({ type: 'session.ready', translation: { provider: 'other', targetLanguage: 'zh-CN' } });
+    await handler.dispose('test');
+
+    const sent2: ServerMessage[] = [];
+    const h2 = new ConnectionHandler({ send: (m) => sent2.push(m), asr: createMockFactory(50), translation: reg, log });
+    h2.handleFrame(JSON.stringify({ ...JSON.parse(START), options: { translationProvider: 'google' } }));
+    await settle();
+    expect(sent2[0]).toMatchObject({ type: 'session.error', code: 'translation_unavailable' });
+    expect(sent2[0]).not.toMatchObject({ message: expect.stringContaining('secret') });
+
+    const sent3: ServerMessage[] = [];
+    const h3 = new ConnectionHandler({ send: (m) => sent3.push(m), asr: createMockFactory(50), translation: reg, log });
+    h3.handleFrame(JSON.stringify({ ...JSON.parse(START), options: { translationProvider: 'nope' } }));
+    await settle();
+    expect(sent3[0]).toMatchObject({ type: 'session.error', code: 'translation_unavailable' });
   });
 
   it('reports asr_unavailable when the adapter cannot start', async () => {
@@ -109,7 +140,7 @@ describe('ConnectionHandler', () => {
     const handler = new ConnectionHandler({
       send: (m) => sent.push(m),
       asr: { provider: 'broken', prepare: async () => {}, create: () => ({ provider: 'broken', on: () => {}, start: async () => { throw new Error('model missing'); }, pushAudio: () => {}, stop: async () => {} }) },
-      translation: createMockTranslationFactory(10),
+      translation: mockRegistry(),
       log,
     });
     handler.handleFrame(START);
@@ -135,11 +166,12 @@ describe('ConnectionHandler', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('turns an unexpected exception into session.error internal_error instead of throwing', () => {
+  it('turns an unexpected exception during start into a session.error instead of throwing', async () => {
     const sent: ServerMessage[] = [];
-    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: createMockTranslationFactory(10), log, newSessionId: () => { throw new Error('boom'); } });
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: mockRegistry(), log, newSessionId: () => { throw new Error('boom'); } });
     expect(() => handler.handleFrame(START)).not.toThrow();
-    expect(sent).toEqual([{ type: 'session.error', code: 'internal_error', message: 'boom' }]);
+    await settle();
+    expect(sent).toEqual([{ type: 'session.error', code: 'asr_unavailable', message: 'boom' }]);
     expect(handler.activeSessionId).toBeNull();
   });
 });

@@ -5,7 +5,9 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 3 as const;
+export const PROTOCOL_VERSION = 4 as const;
+
+/** v4: `session.start.options.translationProvider` lets the client pick the translation engine per session. */
 
 /**
  * v3 (Phase 3): `session.start.options` (partial translation toggle),
@@ -41,6 +43,8 @@ export type TranscriptStatus = 'partial' | 'final';
 export interface SessionOptions {
   /** Also translate in-progress (partial) segments, throttled. Default false. */
   translatePartials: boolean;
+  /** Translation engine name known to the backend (e.g. "hy-mt2", "google"); omitted = backend default. */
+  translationProvider?: string;
 }
 
 export interface SessionStartMessage {

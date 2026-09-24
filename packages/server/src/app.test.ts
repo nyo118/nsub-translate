@@ -5,8 +5,9 @@ import { AUDIO_FORMAT, validateServerMessage, type ServerMessage } from '@lst/pr
 import { buildApp } from './app.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createMockTranslationFactory } from './translation/mock-adapter.js';
+import { TranslationRegistry } from './translation/registry.js';
 
-const START = JSON.stringify({ type: 'session.start', protocolVersion: 3, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const START = JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
 
 /**
  * Integration test: a real Fastify server on an ephemeral loopback port and
@@ -51,7 +52,7 @@ function closed(ws: WebSocket): Promise<void> {
 }
 
 beforeEach(async () => {
-  app = await buildApp({ asr: createMockFactory(20), translation: createMockTranslationFactory(5), logger: false, metricsIntervalMs: 0 });
+  app = await buildApp({ asr: createMockFactory(20), translation: new TranslationRegistry('mock').register('mock', () => createMockTranslationFactory(5)), logger: false, metricsIntervalMs: 0 });
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   if (address === null || typeof address === 'string') throw new Error('no address');
@@ -66,7 +67,7 @@ describe('backend websocket', () => {
   it('exposes a health endpoint', async () => {
     const res = await app.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, openConnections: 0, asrProvider: 'mock', translationProvider: 'mock' });
+    expect(res.json()).toEqual({ ok: true, openConnections: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'] });
   });
 
   it('runs a full session lifecycle: start → ready → transcripts → stop → stopped', async () => {

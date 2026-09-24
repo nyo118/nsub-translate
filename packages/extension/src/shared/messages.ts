@@ -74,6 +74,7 @@ export interface OffscreenStartRequest {
   sourceLanguage: string;
   targetLanguage: string;
   translatePartials: boolean;
+  translationProvider: string;
 }
 export interface OffscreenStopRequest {
   target: 'offscreen';

@@ -29,7 +29,7 @@ export interface PersistedSession {
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
   /** Current user settings; read at start time so later changes never touch a running session. */
-  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean }>;
+  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -39,7 +39,7 @@ export interface SessionPorts {
   ensureOffscreen(): Promise<void>;
   hasOffscreen(): Promise<boolean>;
   closeOffscreen(): Promise<void>;
-  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
+  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
   notifyContent(tabId: number, message: { type: 'content.sessionStarted'; sessionId: string } | { type: 'content.transcript'; transcript: TranscriptMessage } | { type: 'content.sessionStopped' }): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;

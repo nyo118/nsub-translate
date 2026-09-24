@@ -116,6 +116,9 @@
 | P3-8 | `TRANSLATION_PROVIDER=google` 且无 key | 后端启动失败并提示 `GOOGLE_TRANSLATE_API_KEY` |
 | P3-9 | 删除/改名 GGUF 后启动 | 启动失败并提示 `npm run models:download` |
 | P3-10 | 翻译期间观察识别延迟 | 上升但字幕仍连续；机器空闲时 < 1.5 s |
+| P3-11 | popup「翻译引擎」选 Google，后端**未配** key，开始 | popup 报 `translation_unavailable … GOOGLE_TRANSLATE_API_KEY`，状态回 Ready |
+| P3-12 | 在 `packages/server/.env` 写入 key、重启后端、再选 Google 开始 | popup 显示「翻译 Google · 0.x s」，译文明显更快 |
+| P3-13 | 会话中切换引擎 | 当前会话不变，popup 提示「新设置将在下次开始时生效」 |
 
 ## 结果记录
 
