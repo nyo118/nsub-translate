@@ -29,7 +29,7 @@ TEST_PLAN.md         自动化与人工测试计划
 ```bash
 nvm use            # 读取 .nvmrc → Node 22
 npm install
-npm run models:download           # 下载 SenseVoice int8（约 160 MB）+ Silero VAD + Hy-MT2-1.8B Q4_K_M（约 1.1 GB）到 packages/server/models
+npm run models:download           # 下载 SenseVoice int8（约 160 MB）+ Silero VAD + Hy-MT2-1.8B Q6_K（约 1.5 GB）到 packages/server/models
 npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 ```
 
@@ -119,7 +119,7 @@ npm run build
 
 ## 翻译（Phase 3）
 
-- 默认本机 Hy-MT2-1.8B（Q4_K_M GGUF，Apache-2.0，36 语种），提示词用官方模板，附带前 2 句作为上下文以保持术语一致。腾讯官方 2-bit / 1.25-bit 版依赖尚未合入 llama.cpp 的 STQ kernel，node-llama-cpp 无法加载，所以选 Q4_K_M。
+- 默认本机 Hy-MT2-1.8B（官方 Q6_K GGUF，接近无损；Apache-2.0，36 语种），提示词用官方模板（不带上下文，以缩短首 token 时间；Gemini/LLM 引擎则附带前 2 句作为对话历史）。腾讯官方 2-bit / 1.25-bit 版依赖尚未合入 llama.cpp 的 STQ kernel，node-llama-cpp 无法加载；官方仓库另有 Q4_K_M（更快、质量略低）与 Q8_0（更大），改 `HYMT2_MODEL_FILE` 即可切换。
 - 流程：每个 final 入队 → 串行翻译（一次一句）→ 以同一 `segmentId` 的更高 `revision` 补上 `translatedText`。**以新为先**：翻译进行中只保留最新一句等待，更旧的放弃翻译（原文保留）。单句超时 15 s；连续失败 3 次后本会话只显示原文并提示。
 - 字幕层显示最近 2 段；若两段都还没有译文，会把最近一条已翻译的句子保留在上方，避免译文因延迟永远看不到。
 - 「边说边翻译」开关（popup）：开启后未说完的句子每 ≥ 2 s 也翻译一次，译文会反复变化且更耗 CPU；默认关闭。**自适应**：翻译一句的平均耗时超过 2 s 时自动只翻 final，速度恢复后再翻 partial。

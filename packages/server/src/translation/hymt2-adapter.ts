@@ -14,12 +14,12 @@ export { cleanOutput } from './text-utils.js';
  * and by a lock here (across sessions).
  */
 /**
- * Official Tencent GGUF. Smaller community quants (mradermacher IQ3_XS / Q3_K_S)
+ * Official Tencent GGUF (Q6_K: near-lossless quality, ~30% slower than Q4_K_M). Smaller community quants (mradermacher IQ3_XS / Q3_K_S)
  * were tested and rejected: their EOS configuration is broken, so generation
  * runs on past the translation until maxTokens (10× slower, garbage tail).
  * The official 2-bit/1.25-bit files need an unmerged llama.cpp kernel.
  */
-export const HYMT2_MODEL_FILE = 'Hy-MT2-1.8B-Q4_K_M.gguf';
+export const HYMT2_MODEL_FILE = 'Hy-MT2-1.8B-Q6_K.gguf';
 
 export interface HyMt2Config {
   modelsDir: string;
