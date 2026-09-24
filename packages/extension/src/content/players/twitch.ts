@@ -13,6 +13,14 @@ export const twitchAdapter: PlayerAdapter = {
     }
     return null;
   },
+  findVideo(root) {
+    return this.findContainer(root)?.querySelector<HTMLVideoElement>('video') ?? null;
+  },
+  isLive(_root, _video) {
+    // Twitch: channel pages are live; /videos/<id> and /<channel>/clip/<id> URLs are on-demand.
+    const path = typeof location !== 'undefined' ? location.pathname : '';
+    return !/^\/(videos|[^/]+\/clip)\//.test(path);
+  },
   watch(doc, onChange) {
     doc.addEventListener('fullscreenchange', onChange);
     const timer = setInterval(onChange, HEALTH_CHECK_MS);

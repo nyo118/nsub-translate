@@ -67,6 +67,24 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
+## 播放同步（Phase 4）
+
+```
+Offscreen: 第一个被后端接受的音频帧 → offscreen.audioOrigin{ audioOriginWall = Date.now() - 100 }
+    → SW 存入 session 状态并转发 content.audioOrigin（content script 重载时经 content.hello 取回）
+Content: PlaybackTracker 监听 <video> 的 play/pause/seeking/seeked/ratechange/timeupdate
+    → PlaybackTimeline.record({ wall, videoTime, playing, rate })  （墙钟 → 视频时间）
+    → seeked 且 |Δt| ≥ 2 s：timeline.markSeek(now)；store.clear()；重绘
+transcript{startMs,endMs}：wall = audioOriginWall + ms
+    → final 且非直播：cache.upsert({ segmentId, startTime: videoTimeAt(wallStart), endTime: videoTimeAt(wallEnd), 文本 })
+    → timeline.isStale(wallEnd)（跳转前的音频）→ 丢弃，不进 live store
+显示：store.visible() 有内容用它；否则（VOD）cache.at(video.currentTime) → 回放时立即显示
+```
+
+- 音频时钟 = 墙钟：tab 捕获连续进行（暂停时是静音），worklet 每 100 ms 发一帧，所以后端的 `startMs/endMs` 与墙钟线性对应，只需知道零点。
+- 重连后后端音频时钟归零：SW 在 `onReconnected` 丢弃旧零点，等 offscreen 报告新零点；content script 收到新 sessionId 时保留缓存、清空 live store。
+- 直播判定：YouTube `#movie_player.ytp-live` / `.ytp-live-badge` / `duration === Infinity`；Twitch 非 `/videos/`、`/<channel>/clip/` 路径即直播。
+
 ## 翻译流（Phase 3）
 
 ```

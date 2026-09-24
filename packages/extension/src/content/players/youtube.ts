@@ -9,6 +9,15 @@ export const youtubeAdapter: PlayerAdapter = {
   findContainer(root) {
     return root.querySelector<HTMLElement>('#movie_player') ?? root.querySelector<HTMLElement>('.html5-video-player');
   },
+  findVideo(root) {
+    return this.findContainer(root)?.querySelector<HTMLVideoElement>('video.html5-main-video, video') ?? null;
+  },
+  isLive(root, video) {
+    const container = this.findContainer(root);
+    // YouTube marks live players with the `ytp-live` class and a live badge; an infinite duration is the generic signal.
+    if (container?.classList.contains('ytp-live') || container?.querySelector('.ytp-live-badge:not([disabled])') !== null) return true;
+    return video !== null && video.duration === Infinity;
+  },
   watch(doc, onChange) {
     for (const name of YOUTUBE_EVENTS) doc.addEventListener(name, onChange);
     // YouTube replaces the player element in some transitions (mini-player,

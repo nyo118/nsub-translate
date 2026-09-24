@@ -18,6 +18,8 @@ export interface PersistedSession {
   asr?: AsrInfo;
   translation?: TranslationInfo;
   translatePartials?: boolean;
+  /** Wall time of the backend session's audio-clock zero (set once audio flows). */
+  audioOriginWall?: number;
   lastError?: string;
 }
 
@@ -41,7 +43,14 @@ export interface SessionPorts {
   closeOffscreen(): Promise<void>;
   startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
-  notifyContent(tabId: number, message: { type: 'content.sessionStarted'; sessionId: string } | { type: 'content.transcript'; transcript: TranscriptMessage } | { type: 'content.sessionStopped' }): Promise<void>;
+  notifyContent(
+    tabId: number,
+    message:
+      | { type: 'content.sessionStarted'; sessionId: string; audioOriginWall?: number }
+      | { type: 'content.audioOrigin'; sessionId: string; audioOriginWall: number }
+      | { type: 'content.transcript'; transcript: TranscriptMessage }
+      | { type: 'content.sessionStopped' },
+  ): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
 
@@ -267,7 +276,8 @@ export class SessionManager {
     if (current.status !== 'active') return;
     this.connection = 'connected';
     this.metrics = undefined;
-    await this.setState({ ...current, sessionId, asr, ...(translation === undefined ? {} : { translation }) });
+    const { audioOriginWall: _oldOrigin, ...rest } = current;
+    await this.setState({ ...rest, sessionId, asr, ...(translation === undefined ? {} : { translation }) });
     if (current.tabId !== undefined) {
       await this.ports.notifyContent(current.tabId, { type: 'content.sessionStarted', sessionId }).catch(() => undefined);
     }
@@ -275,12 +285,22 @@ export class SessionManager {
   }
 
   /** Does this tab have the active session? Used when a content script (re)loads. */
-  async sessionForTab(tabId: number): Promise<{ active: boolean; sessionId?: string }> {
+  async sessionForTab(tabId: number): Promise<{ active: boolean; sessionId?: string; audioOriginWall?: number }> {
     const current = await this.getState();
     if (current.status === 'active' && current.tabId === tabId && current.sessionId !== undefined) {
-      return { active: true, sessionId: current.sessionId };
+      return { active: true, sessionId: current.sessionId, ...(current.audioOriginWall === undefined ? {} : { audioOriginWall: current.audioOriginWall }) };
     }
     return { active: false };
+  }
+
+  /** The offscreen document reports when audio started flowing for a session. */
+  async onAudioOrigin(sessionId: string, audioOriginWall: number): Promise<void> {
+    const current = await this.getState();
+    if (current.status !== 'active' || current.sessionId !== sessionId) return;
+    await this.setState({ ...current, audioOriginWall });
+    if (current.tabId !== undefined) {
+      await this.ports.notifyContent(current.tabId, { type: 'content.audioOrigin', sessionId, audioOriginWall }).catch(() => undefined);
+    }
   }
 
   /**

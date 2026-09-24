@@ -46,6 +46,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       manager.onMetrics(message.metrics);
       sendResponse({ ok: true });
       return false;
+    case 'offscreen.audioOrigin':
+      return respond(manager.onAudioOrigin(message.sessionId, message.audioOriginWall).then(() => ({ ok: true })));
     case 'offscreen.reconnecting':
       manager.onReconnecting();
       sendResponse({ ok: true });

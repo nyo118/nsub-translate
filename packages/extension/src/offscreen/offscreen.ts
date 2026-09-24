@@ -40,6 +40,7 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
     return { ok: false, error: 'Offscreen document is already capturing. Stop the current session first.' };
   }
   let localCapture: AudioCaptureHandle | null = null;
+  let originSessionId: string | null = null;
   const localClient = new BackendClient(
     {
       onMessage: (message) => {
@@ -73,7 +74,16 @@ async function start(req: OffscreenStartRequest): Promise<OffscreenStartResponse
       {
         workletUrl: chrome.runtime.getURL('pcm-worklet.js'),
         // Audio frames go straight to the backend; while (re)connecting they are dropped and counted.
-        onPcm: (frame) => localClient.sendAudio(frame),
+        // The first frame accepted by a session fixes that session's audio-clock origin
+        // (frame covers the previous 100 ms) so the content script can map transcripts to video time.
+        onPcm: (frame) => {
+          if (!localClient.sendAudio(frame)) return;
+          const sid = localClient.sessionId;
+          if (sid !== null && sid !== originSessionId) {
+            originSessionId = sid;
+            toBackground({ target: 'background', type: 'offscreen.audioOrigin', sessionId: sid, audioOriginWall: Date.now() - 100 });
+          }
+        },
       },
     );
     log('tab audio captured', { tracks: localCapture.stream.getAudioTracks().length, audioContext: localCapture.context.state });

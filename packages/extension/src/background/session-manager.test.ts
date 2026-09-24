@@ -251,6 +251,20 @@ describe('SessionManager', () => {
     expect((await m.snapshot()).transcriptCount).toBe(1);
   });
 
+  it('stores the audio-clock origin, forwards it to the tab, and hands it to re-attaching content scripts', async () => {
+    const world = makeWorld();
+    const m = manager(world);
+    await m.start();
+    await m.onAudioOrigin('other-session', 123); // ignored
+    expect((await m.sessionForTab(7)).audioOriginWall).toBeUndefined();
+    await m.onAudioOrigin('sid-1', 1_700_000_000_000);
+    expect(world.contentMessages.at(-1)).toEqual({ tabId: 7, type: 'content.audioOrigin' });
+    expect(await manager(world).sessionForTab(7)).toEqual({ active: true, sessionId: 'sid-1', audioOriginWall: 1_700_000_000_000 });
+    // A reconnect starts a new audio clock: the stale origin is dropped until reported again.
+    await m.onReconnected('sid-2', { provider: 'sensevoice', language: 'auto' });
+    expect((await m.sessionForTab(7)).audioOriginWall).toBeUndefined();
+  });
+
   it('stop on an idle manager still closes a leftover offscreen document', async () => {
     const world = makeWorld();
     world.offscreenOpen.value = true;

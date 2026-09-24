@@ -59,6 +59,8 @@ export type OffscreenToBackground =
   | { target: 'background'; type: 'offscreen.transcript'; transcript: TranscriptMessage }
   | { target: 'background'; type: 'offscreen.level'; level: number }
   | { target: 'background'; type: 'offscreen.metrics'; metrics: SessionMetricsMessage }
+  /** Wall-clock time (Date.now()) corresponding to audio-clock 0 of the backend session. */
+  | { target: 'background'; type: 'offscreen.audioOrigin'; sessionId: string; audioOriginWall: number }
   | { target: 'background'; type: 'offscreen.reconnecting'; attempt: number }
   | { target: 'background'; type: 'offscreen.reconnected'; sessionId: string; asr: AsrInfo; translation: TranslationInfo }
   | { target: 'background'; type: 'offscreen.disconnected'; reason: string };
@@ -97,7 +99,8 @@ export type OffscreenPingResponse = { ok: true; capturing: boolean; sessionId: s
 
 // ---- Background -> Content (chrome.tabs.sendMessage) ----------------------
 export type ToContent =
-  | { target: 'content'; type: 'content.sessionStarted'; sessionId: string }
+  | { target: 'content'; type: 'content.sessionStarted'; sessionId: string; audioOriginWall?: number }
+  | { target: 'content'; type: 'content.audioOrigin'; sessionId: string; audioOriginWall: number }
   | { target: 'content'; type: 'content.transcript'; transcript: TranscriptMessage }
   | { target: 'content'; type: 'content.sessionStopped' }
   | { target: 'content'; type: 'content.detect' };
@@ -111,6 +114,7 @@ export interface ContentDetectResponse {
 export interface ContentHelloResponse {
   active: boolean;
   sessionId?: string;
+  audioOriginWall?: number;
 }
 
 export type OkResponse = { ok: true } | { ok: false; error: string };

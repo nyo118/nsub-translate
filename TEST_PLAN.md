@@ -123,6 +123,30 @@
 | P3-16 | 引擎选「自定义 LLM」（LM Studio 局域网） | 后端日志 `translation engine warm-up done { provider: 'llm' … ms: ~400 }`；popup「翻译 LLM · 0.5 s」 |
 | P3-17 | 把 GEMINI_MODEL 改成不存在或思考型模型后重启、选 Gemini 开始 | 开始时即报 `translation_unavailable … failed its warm-up`（或后端警告 too slow），而不是静默无译文 |
 
+## Phase 4 增补
+
+### 自动化
+| 层 | 覆盖 |
+|---|---|
+| PlaybackTimeline | 播放外推 / 暂停保持 / 倍速 / 乱序时钟 / 跳转标记与过期判定 / 样本上限 |
+| SubtitleCache | 覆盖段 + 前一段、结尾宽限、译文后补更新、上限与清空 |
+| PlaybackTracker（happy-dom） | play/pause 采样、< 2 s 小跳不算 seek、拖动多次 seeking 只算一次、重新挂载新 `<video>`、timeupdate 节流 |
+| SessionManager | audioOrigin 存储/转发/重载取回、重连后清空旧零点 |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| P4-1 | YouTube VOD 播放中暂停 30 s | 字幕保持最后一句，无报错；继续后正常 |
+| P4-2 | 快进 1 分钟 | 字幕 1 s 内清空，之后只出现新位置的句子，不闪回旧句 |
+| P4-3 | 看 1 分钟后拖回开头 | 立即显示之前识别过的字幕（含译文），随进度切换；追上未看过的位置后恢复实时识别 |
+| P4-4 | 1.5× / 2× 倍速 | 字幕正常；拖回时缓存对齐大致正确 |
+| P4-5 | YouTube 迷你播放器 / 剧场模式 / 全屏切换 | 字幕层跟随，Console 显示 `tracking video element`（元素替换时） |
+| P4-6 | YouTube 直播 | popup 与提示层显示直播；无缓存行为；字幕正常 |
+| P4-7 | Twitch 频道页：开始 → 剧场模式 → 全屏 → 切频道 | 字幕层跟随；切频道后缓存清空、字幕继续 |
+| P4-8 | Twitch 广告期间 | 可能出现广告语音字幕（已知限制），广告结束后正常 |
+| P4-9 | 会话中重启后端（重连） | 重连后字幕恢复；之前的回放缓存仍可用 |
+| P4-10 | 刷新页面（会话进行中） | 重新附着后字幕恢复，缓存为空（预期） |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

@@ -2,7 +2,7 @@
 
 个人用 Chrome 扩展：在 YouTube / Twitch 视频内叠加**双语实时字幕**。
 
-当前状态：**Phase 3 — 多语翻译**（Phase 0–2 已验收）。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
+当前状态：**Phase 4 — 同步与 Twitch 兼容**（Phase 0–3 已验收）。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
 
 ## 目录结构
 
@@ -128,9 +128,21 @@ npm run build
 - 本机模型的提示词已去掉上下文、译文上限 128 token，以缩短首 token 时间。更小的社区量化（mradermacher IQ3_XS / Q3_K_S）实测 EOS 配置有误、会一直生成到上限（反而慢 5–10 倍），因此**没有提供「小模型」选项**；官方 2-bit 需要未合入的 llama.cpp 内核。
 - Google 方案：在 popup「翻译引擎」选「Google 翻译 API」，并在 `packages/server/.env` 写入 `GOOGLE_TRANSLATE_API_KEY=...`（重启后端生效）；延迟约 0.3 s，不占本机 CPU，每月前 50 万字符免费。key 只存在后端，扩展看不到。未配置 key 时选择 Google 会在开始时报 `translation_unavailable` 并提示。
 
-## 已知限制（Phase 3）
+## 播放同步（Phase 4）
+
+- **暂停**：字幕保持最后一句不变（没有新语音就没有新字幕）。
+- **跳转（快进/快退 > 2 s）**：字幕层立即清空；跳转前音频对应的识别/翻译结果若迟到，直接丢弃，不会闪回旧字幕。
+- **回放**：本次会话内每个 final（含译文）按**视频时间**缓存；拖回已看过的区间时立刻显示缓存字幕，不必再等识别。缓存只在内存，停止会话或切视频即清空；直播页不启用。
+- **时间映射**：后端音频时钟按 1× 实时推进（静音也在捕获），扩展记录「音频时钟零点」对应的墙钟时间，并用 `<video>` 的 play/pause/seek/rate 事件建立「墙钟 → 视频时间」时间线，把每段字幕映射到视频位置。误差约 0.1–0.5 s。
+- **播放器替换**：`<video>` 元素被替换（迷你播放器、广告、切频道）时自动重新挂载事件。
+- **直播**：Twitch 频道页 / YouTube 直播（`ytp-live` 或 `duration === Infinity`）视为直播：不启用回放缓存。
+
+## 已知限制（Phase 4）
 
 - 译文比原文晚 2–4 s 出现（本机翻译）；机器繁忙时更久。
+- Twitch 广告期间会识别广告里的语音（没有广告检测）。
+- 回放缓存按会话保存，重开会话或刷新页面后失效（持久化留到 Phase 5）。
+- 变速播放时映射按 `playbackRate` 推算，极端倍速下缓存对齐误差变大。
 - 识别切错的句子（如软切分切在词中）翻译也会跟着错。
 - 背景音乐 / 多人同时说话会明显降低识别质量，这是 ASR 模型本身的限制。
 - Auto Detect 按整句判断语种；一句话内中英夹杂时 SenseVoice 表现尚可，日英夹杂未系统评估。

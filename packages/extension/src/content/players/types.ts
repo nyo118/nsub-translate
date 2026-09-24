@@ -9,6 +9,10 @@ export interface PlayerAdapter {
   readonly platform: Platform;
   /** The element the overlay is appended to, or null if no player is present. */
   findContainer(root: ParentNode): HTMLElement | null;
+  /** The <video> element driving playback, or null. */
+  findVideo(root: ParentNode): HTMLVideoElement | null;
+  /** Whether the current page is a live stream (no seeking, no replay cache). */
+  isLive(root: ParentNode, video: HTMLVideoElement | null): boolean;
   /**
    * Start watching for player changes. `onChange` is called whenever the
    * adapter believes the container may have changed; the caller re-checks.
