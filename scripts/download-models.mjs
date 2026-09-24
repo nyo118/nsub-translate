@@ -1,5 +1,5 @@
 // Downloads the SenseVoice int8 ASR model, the Silero VAD model and the Hy-MT2-1.8B
-// translation model (GGUF Q6_K) into packages/server/models.
+// translation model (GGUF Q4_K_M) into packages/server/models.
 // Idempotent: existing files are kept. Requires curl and tar (macOS / Linux).
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -37,10 +37,10 @@ else {
   run('tar', ['xjf', archive, '-C', modelsDir]);
   rmSync(archive);
 }
-const mt = path.join(modelsDir, "Hy-MT2-1.8B-Q6_K.gguf");
+const mt = path.join(modelsDir, "Hy-MT2-1.8B-Q4_K_M.gguf");
 if (existsSync(mt)) console.log(`✓ ${mt}`);
 else {
-  console.log('Downloading Hy-MT2-1.8B Q6_K (~1.5 GB)…');
-  run('curl', ['-L', '--fail', '-o', mt, 'https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q6_K.gguf']);
+  console.log('Downloading Hy-MT2-1.8B Q4_K_M (~1.1 GB)…');
+  run('curl', ['-L', '--fail', '-o', mt, 'https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf']);
 }
 console.log(`\nModels ready in ${modelsDir}`);
