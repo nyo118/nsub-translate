@@ -14,6 +14,21 @@
 | `checksum mismatch` | 下载不完整或文件被改 | 删除该文件后重新 `npm run models:download` |
 | `Failed to load model`（GGUF） | 用了需要特殊内核的量化（官方 2-bit/1.25-bit）或损坏文件 | 使用 `models.lock.json` 指定的官方 Q4_K_M |
 
+## 原生模块（`Could not find sherpa-onnx-node` / `ASR worker died`）
+
+`sherpa-onnx-node` 把所有加载错误都吞成一句「Could not find sherpa-onnx-node… 请设置 DYLD_LIBRARY_PATH」，真实原因通常是下面之一。先跑 **`npm run doctor`**，它会指出具体是哪一种并给出命令。
+
+| 原因 | 判断 | 处理 |
+|---|---|---|
+| 没有在仓库根目录安装依赖 / 用 Node 18 安装 / 用了 `--omit=optional` | `ls node_modules | grep sherpa-onnx-` 没有你平台的包（如 `sherpa-onnx-darwin-arm64`） | 仓库根目录 `nvm use && npm ci` |
+| Apple Silicon 上原生库未签名（macOS 拒绝加载未签名 arm64 库） | Intel 机器正常、M 系列机器报错 | `codesign --force --sign - node_modules/sherpa-onnx-darwin-arm64/*.dylib node_modules/sherpa-onnx-darwin-arm64/*.node` |
+| 浏览器下载的文件带隔离属性 | `xattr -l node_modules/sherpa-onnx-darwin-*/sherpa-onnx.node` 有 `com.apple.quarantine` | `xattr -dr com.apple.quarantine node_modules/sherpa-onnx-darwin-*` |
+| Node 架构与机器不一致（Rosetta 下的 x64 Node） | `node -p process.arch` 与 `uname -m` 不一致 | 装与机器一致的 Node（nvm 会按当前架构安装） |
+| Linux 找不到共享库 | 报错含 `LD_LIBRARY_PATH` | `export LD_LIBRARY_PATH=$PWD/node_modules/sherpa-onnx-linux-x64:$LD_LIBRARY_PATH` |
+| 不支持的平台（如 Windows arm64、Linux armv7） | doctor 提示 no prebuilt | 无预编译包，暂不支持 |
+
+注：`npm test` 中真实模型的集成测试只在模型已下载时运行；干净 clone 未下载模型时它会被跳过，不会报这个错。
+
 ## 翻译引擎
 
 | 现象 | 原因 | 处理 |

@@ -57,6 +57,7 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 | `npm run dev:server` | 启动本地后端（`tsx watch`，改代码自动重启），监听 `ws://127.0.0.1:8787/ws` |
 | `npm run start:server` | 用 `packages/server/dist` 启动后端（需先 build） |
 | `npm run test:e2e` | 先 build，再用 Playwright 加载扩展跑测试：popup/后端握手（mock 后端 :8797），以及把 `www.youtube.com` 解析到本地 HTTPS fixture 页的 content script 回归（字幕层、seek、回放缓存、样式即时生效） |
+| `npm run doctor` | 安装体检：Node 版本/架构、sherpa-onnx 原生模块、模型、`.env`、引擎配置；报错时先跑它 |
 | `npm run bench` | 标准性能基准（需后端运行） |
 | `npm run service:install` | macOS 登录自启后端（launchd），`service:status` / `service:restart` / `service:uninstall` |
 | `npm run release -- --tag` | 检查 + 干净构建 + 打包 zip/SHA256 到 `release/` + git tag |

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { toSenseVoiceLanguage } from './languages.js';
+import { diagnoseSherpa } from './sherpa-diagnose.js';
 import type { WorkerInbound, WorkerOutbound } from './sherpa-messages.js';
 import type { AsrAdapter, AsrAdapterEvents, AsrAdapterFactory, AsrStartOptions } from './types.js';
 
@@ -205,6 +206,9 @@ export function createSherpaFactory(config: SherpaConfig): AsrAdapterFactory {
   return {
     provider: 'sensevoice',
     async prepare() {
+      // Explain native-module problems before the worker turns them into a generic crash.
+      const native = diagnoseSherpa(import.meta.url);
+      if (!native.ok) throw new Error(`Speech recognition engine cannot load (${native.platformPackage}):\n${native.message}`);
       const missing = SherpaWorkerHost.checkModels(config.modelsDir);
       if (missing !== null) throw new Error(missing);
       const t0 = Date.now();

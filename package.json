@@ -30,7 +30,8 @@
     "service:install": "node scripts/service.mjs install",
     "service:uninstall": "node scripts/service.mjs uninstall",
     "service:status": "node scripts/service.mjs status",
-    "service:restart": "node scripts/service.mjs restart"
+    "service:restart": "node scripts/service.mjs restart",
+    "doctor": "npm run check-node && tsx packages/server/src/doctor.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

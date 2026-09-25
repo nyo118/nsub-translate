@@ -51,6 +51,7 @@ switch (cmd) {
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>DYLD_LIBRARY_PATH</key><string>${path.join(root, 'node_modules', `sherpa-onnx-darwin-${process.arch}`)}</string>
   </dict>
 </dict>
 </plist>
