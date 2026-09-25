@@ -27,6 +27,8 @@ export interface ConnectionHandlerOptions {
   onSessionCount?: (delta: 1 | -1) => void;
   onSessionSummary?: (summary: SessionSummary) => void;
   logTranscripts?: boolean;
+  /** Backend-wide readiness (models still downloading, etc.). Returns a message when not ready. */
+  notReady?: () => string | null;
 }
 
 /**
@@ -46,6 +48,7 @@ export class ConnectionHandler {
   private readonly onSessionCount: (delta: 1 | -1) => void;
   private readonly onSessionSummary: (summary: SessionSummary) => void;
   private readonly logTranscripts: boolean;
+  private readonly notReady: () => string | null;
   private droppedAudioFrames = 0;
 
   constructor(options: ConnectionHandlerOptions) {
@@ -58,6 +61,7 @@ export class ConnectionHandler {
     this.onSessionCount = options.onSessionCount ?? (() => {});
     this.onSessionSummary = options.onSessionSummary ?? (() => {});
     this.logTranscripts = options.logTranscripts ?? false;
+    this.notReady = options.notReady ?? (() => null);
   }
 
   get activeSessionId(): string | null {
@@ -109,6 +113,11 @@ export class ConnectionHandler {
       case 'session.start': {
         if (this.session !== null || this.starting) {
           this.error('session_already_started', `a session is already active on this connection`);
+          return;
+        }
+        const notReady = this.notReady();
+        if (notReady !== null) {
+          this.error('asr_unavailable', notReady);
           return;
         }
         this.starting = true;

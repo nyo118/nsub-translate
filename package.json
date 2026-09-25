@@ -1,6 +1,6 @@
 {
   "name": "live-subtitle-translator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Personal-use Chrome extension that overlays bilingual live subtitles on YouTube/Twitch videos (Phase 0: technical validation).",

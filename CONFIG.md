@@ -13,6 +13,7 @@
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | — / — / — / `0`(不限) | 任意 OpenAI 兼容端点；裸主机自动补 `/v1` |
 | `GOOGLE_TRANSLATE_API_KEY` | — | Google Cloud Translation |
 | `MODELS_DIR` | `packages/server/models` | 模型目录 |
+| `AUTO_DOWNLOAD_MODELS` | `1` | 缺失模型自动下载（按 `models.lock.json` 的 URL 与 SHA-256）；`0` 关闭 |
 | `LOGS_DIR` | `packages/server/logs` | 会话摘要与服务日志；`off` 关闭摘要文件 |
 | `LOG_TRANSCRIPTS` | `0` | `1` 时把 final 文本写入日志（调试用） |
 | `METRICS_INTERVAL_MS` | `5000` | `session.metrics` 间隔 |

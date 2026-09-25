@@ -1,6 +1,6 @@
 {
   "name": "@lst/protocol",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Versioned JSON control protocol shared by the extension and the local backend.",

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Pins the exact model files by SHA-256. `--write` records the current files; default verifies.
-//   node scripts/models-lock.mjs           # verify packages/server/models against models.lock.json
-//   node scripts/models-lock.mjs --write   # (maintainer) regenerate the lock from the files on disk
+// Verifies packages/server/models against models.lock.json (SHA-256). `--write` refreshes the
+// checksums from the files on disk (maintainer use; URLs/archives in the lock are kept).
+//   node scripts/models-lock.mjs           # verify
+//   node scripts/models-lock.mjs --write   # regenerate sha256 fields
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -10,12 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const modelsDir = process.env.MODELS_DIR ? path.resolve(process.env.MODELS_DIR) : path.join(root, 'packages/server/models');
 const lockFile = path.join(root, 'models.lock.json');
-const FILES = [
-  'silero_vad.onnx',
-  'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx',
-  'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt',
-  'Hy-MT2-1.8B-Q4_K_M.gguf',
-];
+const lock = JSON.parse(readFileSync(lockFile, 'utf8'));
 
 function sha256(file) {
   return new Promise((resolve, reject) => {
@@ -25,9 +21,8 @@ function sha256(file) {
 }
 
 const write = process.argv.includes('--write');
-const entries = {};
 let failed = 0;
-for (const rel of FILES) {
+for (const [rel, spec] of Object.entries(lock.files)) {
   const file = path.join(modelsDir, rel);
   if (!existsSync(file)) {
     console.error(`✗ missing: ${rel}`);
@@ -35,19 +30,18 @@ for (const rel of FILES) {
     continue;
   }
   const hash = await sha256(file);
-  entries[rel] = { sha256: hash };
-  if (!write) {
-    const lock = JSON.parse(readFileSync(lockFile, 'utf8'));
-    const expected = lock.files?.[rel]?.sha256;
-    if (expected === hash) console.log(`✓ ${rel}`);
-    else {
-      console.error(`✗ checksum mismatch: ${rel}\n    expected ${expected}\n    actual   ${hash}`);
-      failed++;
-    }
-  } else console.log(`${hash}  ${rel}`);
+  if (write) {
+    spec.sha256 = hash;
+    console.log(`${hash}  ${rel}`);
+  } else if (spec.sha256 === hash) console.log(`✓ ${rel}`);
+  else {
+    console.error(`✗ checksum mismatch: ${rel}\n    expected ${spec.sha256}\n    actual   ${hash}`);
+    failed++;
+  }
 }
 if (write) {
-  writeFileSync(lockFile, `${JSON.stringify({ generatedAt: new Date().toISOString(), files: entries }, null, 2)}\n`);
+  lock.generatedAt = new Date().toISOString();
+  writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
   console.log(`\nwrote ${lockFile}`);
 }
 if (failed) {

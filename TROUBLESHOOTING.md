@@ -9,7 +9,8 @@
 | popup 红字「本地后端未运行」 | 后端没起 / 还在加载模型 | `npm run start:server`（或 `npm run service:status`）；等 `Server listening`；模型加载 5–15 s |
 | 终端 `Node 18.20.8 is not supported` | 终端里不是 Node 22 | `nvm use`；若 `command not found: nvm`：`source ~/.nvm/nvm.sh` 或 `export PATH="$HOME/.nvm/versions/node/v22.16.0/bin:$PATH"` |
 | `listen EADDRINUSE 127.0.0.1:8787` | 端口被另一个后端占用（手动启动 + 服务同时存在，或 e2e 期间） | `lsof -nP -iTCP:8787 -sTCP:LISTEN` 找到进程；停掉多余的一个 |
-| `Missing ASR model files` / `Missing translation model` | 模型未下载或校验失败 | `npm run models:download`（自动校验 `models.lock.json`） |
+| popup「后端准备中：…下载中 xx%」 | 后端正在自动下载模型 | 等待完成即可（识别模型约 160 MB，翻译模型 1.1 GB，只在首次选用本机翻译时下载） |
+| popup「…准备失败」/ 后端 `model download failed` | 网络不通或校验失败 | 检查网络后重启后端，或手动 `npm run models:download`；`AUTO_DOWNLOAD_MODELS=0` 时需手动下载 |
 | `checksum mismatch` | 下载不完整或文件被改 | 删除该文件后重新 `npm run models:download` |
 | `Failed to load model`（GGUF） | 用了需要特殊内核的量化（官方 2-bit/1.25-bit）或损坏文件 | 使用 `models.lock.json` 指定的官方 Q4_K_M |
 

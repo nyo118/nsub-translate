@@ -71,7 +71,7 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 
 - **版本**：`scripts/set-version.mjs` 同步 root / 各包 / `manifest.json`；扩展与后端同版本发布，协议版本不兼容时握手即报错。
 - **依赖**：`package-lock.json` 入库，`npm ci` 安装；Node 由 `.nvmrc` 固定（`check-node.mjs` 在每个 root 脚本前校验）。
-- **模型**：`models.lock.json` 记录 SHA-256；`download-models.mjs` 下载后调用 `models-lock.mjs` 校验，不一致即失败。
+- **模型**：`models.lock.json` 是唯一来源（URL、压缩包、SHA-256、分组）。后端 `ModelManager` 启动时先监听端口再在后台下载缺失的 `asr` 组文件（`/healthz.models` 给出进度，`ready:false` 时 `session.start` 返回带进度的 `asr_unavailable`），`translation` 组在 `hy-mt2` 首次 `prepare()` 时按需下载；`downloader.ts` 下载到 `.part` 后重命名并逐文件校验，失败即删除。`scripts/download-models.mjs` 为预下载工具，读同一份 lock。
 - **构建**：`scripts/release.mjs` 删除三个 `dist/` 后重新构建，产出扩展 zip（含 `BUILD.txt`：版本、commit、时间）与后端 zip（dist + package 文件 + 脚本），并写 `SHA256SUMS.txt`；`--tag` 打注解 tag。
 - **运行**：`scripts/service.mjs` 生成 launchd plist（`RunAtLoad`、崩溃自动拉起、日志到 `packages/server/logs/`），从 dist 启动，读取 `.env`。
 

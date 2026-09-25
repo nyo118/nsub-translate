@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 — 2026-09-25
+
+### 新增
+- **模型自动下载**：后端启动时自动下载缺失的语音识别模型（约 160 MB，校验 SHA-256），期间 popup 显示下载进度、开始按钮禁用，就绪后无需重启；本机翻译模型（1.1 GB）只在第一次选用「本机 Hy-MT2」时下载。`AUTO_DOWNLOAD_MODELS=0` 可关闭。
+- `models.lock.json` 成为模型的唯一来源（URL、压缩包、SHA-256、分组）；`npm run models:download` / `models:verify` 改为读取它。
+- `/healthz` 新增 `ready` 与 `models` 字段；模型未就绪时 `session.start` 返回带进度的 `asr_unavailable`。
+
+### 变更
+- 后端现在**先监听端口再加载模型**，popup 不再把「模型加载中」误报为「后端未运行」。
+
 ## 0.1.0 — 2026-09-25（个人使用 Beta）
 
 首个可日常使用的版本。Chrome MV3 扩展 + 本地后端，在 YouTube / Twitch 视频内叠加实时双语字幕。

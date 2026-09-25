@@ -1,17 +1,36 @@
 {
+  "version": 1,
   "generatedAt": "2026-09-25T07:07:31.445Z",
+  "notes": "Single source of truth for model files: where to get them and their SHA-256. Used by scripts/download-models.mjs, scripts/models-lock.mjs and the backend's automatic downloader.",
+  "archives": {
+    "sensevoice": {
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+      "format": "tar.bz2",
+      "sizeBytes": 165783878
+    }
+  },
   "files": {
     "silero_vad.onnx": {
-      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+      "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "sizeBytes": 643854,
+      "group": "asr"
     },
     "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx": {
-      "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+      "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51",
+      "archive": "sensevoice",
+      "group": "asr"
     },
     "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt": {
-      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+      "archive": "sensevoice",
+      "group": "asr"
     },
     "Hy-MT2-1.8B-Q4_K_M.gguf": {
-      "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+      "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+      "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf",
+      "sizeBytes": 1133080448,
+      "group": "translation"
     }
   }
 }

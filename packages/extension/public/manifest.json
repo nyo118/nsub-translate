@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Live Subtitle Translator (Phase 0)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Personal-use bilingual live subtitles for YouTube and Twitch. Phase 0: technical validation with a mock backend.",
   "minimum_chrome_version": "116",
   "icons": {

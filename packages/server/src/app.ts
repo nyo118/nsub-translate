@@ -14,6 +14,8 @@ import { HYMT2_MODEL_FILE, createHyMt2Factory } from './translation/hymt2-adapte
 import { GEMINI_OPENAI_BASE_URL, createOpenAiCompatibleFactory } from './translation/openai-compatible-adapter.js';
 import { TranslationRegistry } from './translation/registry.js';
 import { SessionLog } from './metrics/session-log.js';
+import { ModelManager } from './models/model-manager.js';
+import { loadModelLock } from './models/model-lock.js';
 
 export interface EngineStatus {
   /** Model file / API key present. */
@@ -34,6 +36,10 @@ export interface AppOptions {
   logTranscripts?: boolean;
   /** Directory for logs/sessions.jsonl; null = memory only. */
   logsDir?: string | null;
+  /** Model download/readiness state for /healthz and the session gate. */
+  models?: ModelManager;
+  /** Extra readiness gate (e.g. ASR still loading). */
+  notReady?: () => string | null;
 }
 
 const startedAt = Date.now();
@@ -59,6 +65,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     translationProvider: options.translation.defaultProvider,
     translationProviders: options.translation.providers,
     engines: options.engineStatus?.() ?? {},
+    models: options.models?.snapshot() ?? null,
+    ready: options.notReady ? options.notReady() === null : true,
     recentSessions: sessionLog.recentSessions,
   }));
 
@@ -76,6 +84,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
         activeSessions += delta;
       },
       onSessionSummary: (summary) => sessionLog.record(summary),
+      ...(options.notReady === undefined ? {} : { notReady: options.notReady }),
       ...(options.metricsIntervalMs === undefined ? {} : { metricsIntervalMs: options.metricsIntervalMs }),
       ...(options.logTranscripts === undefined ? {} : { logTranscripts: options.logTranscripts }),
     });
@@ -145,9 +154,11 @@ export function createAsrFactory(config: ServerConfig, log: BootLog): AsrAdapter
  * Every engine the client may select. The default (TRANSLATION_PROVIDER) is
  * prepared at startup; the others load lazily on first use.
  */
-export function createTranslationRegistry(config: ServerConfig, log: BootLog): TranslationRegistry {
+export function createTranslationRegistry(config: ServerConfig, log: BootLog, models?: ModelManager): TranslationRegistry {
   const registry = new TranslationRegistry(config.translationProvider)
-    .register('hy-mt2', () => createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log }))
+    .register('hy-mt2', () =>
+      createHyMt2Factory({ modelsDir: config.modelsDir, threads: config.translationThreads, log, ...(models === undefined ? {} : { ensureModel: () => models.ensure('translation') }) }),
+    )
     .register('gemini', () =>
       createOpenAiCompatibleFactory({ provider: 'gemini', baseUrl: GEMINI_OPENAI_BASE_URL, apiKey: config.geminiApiKey, model: config.geminiModel, envHint: 'GEMINI_API_KEY (and optionally GEMINI_MODEL)', log, requestsPerMinute: config.geminiRpm }),
     )
@@ -186,10 +197,17 @@ export function describeConfiguredEngines(config: ServerConfig): Record<string, 
 export async function startServer(config: ServerConfig): Promise<FastifyInstance> {
   const bootLog: BootLog = { info: (o, m) => console.info(m, o), warn: (o, m) => console.warn(m, o) };
   bootLog.info(describeConfiguredEngines(config), 'configured engines');
+  const models = new ModelManager({ modelsDir: config.modelsDir, lock: loadModelLock(), autoDownload: config.autoDownloadModels, log: bootLog });
   const asr = createAsrFactory(config, bootLog);
-  const translation = createTranslationRegistry(config, bootLog);
-  await asr.prepare();
-  await translation.get(); // default engine ready before the first session
+  const translation = createTranslationRegistry(config, bootLog, models);
+  let asrReady = config.asrProvider === 'mock';
+  let asrError: string | null = null;
+  const notReady = (): string | null => {
+    if (asrReady) return null;
+    if (asrError !== null) return `语音识别不可用：${asrError}`;
+    if (config.asrProvider === 'sensevoice' && !models.isReady('asr')) return models.notReadyMessage('asr');
+    return '语音识别模型正在加载，请稍候再开始。';
+  };
   const app = await buildApp({
     asr,
     translation,
@@ -198,9 +216,25 @@ export async function startServer(config: ServerConfig): Promise<FastifyInstance
     idleTimeoutMs: config.idleTimeoutMs,
     logTranscripts: config.logTranscripts,
     logsDir: config.logsDir,
+    models,
+    notReady,
   });
   app.addHook('onClose', async () => translation.dispose());
+  // Listen first so the popup can show "downloading models" instead of "backend not running".
   await app.listen({ host: config.host, port: config.port });
   app.log.info({ asrProvider: asr.provider, translationProvider: translation.defaultProvider, translationProviders: translation.providers }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
+  void (async () => {
+    try {
+      if (config.asrProvider === 'sensevoice') await models.ensure('asr');
+      await asr.prepare();
+      asrReady = true;
+      // Default engine warmed up in the background too (hy-mt2 downloads on demand).
+      await translation.get().catch((err: unknown) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'default translation engine not ready'));
+      app.log.info('backend ready');
+    } catch (err) {
+      asrError = err instanceof Error ? err.message : String(err);
+      app.log.error({ err: asrError }, 'ASR preparation failed');
+    }
+  })();
   return app;
 }

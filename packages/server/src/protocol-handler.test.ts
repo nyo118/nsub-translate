@@ -74,6 +74,21 @@ describe('ConnectionHandler', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('refuses to start while the backend reports not-ready (models downloading)', async () => {
+    const sent: ServerMessage[] = [];
+    let ready = false;
+    const handler = new ConnectionHandler({ send: (m) => sent.push(m), asr: createMockFactory(50), translation: mockRegistry(), log, notReady: () => (ready ? null : '语音识别模型正在下载 40%'), metricsIntervalMs: 0 });
+    handler.handleFrame(START);
+    await settle();
+    expect(sent[0]).toMatchObject({ type: 'session.error', code: 'asr_unavailable', message: expect.stringContaining('40%') });
+    expect(handler.activeSessionId).toBeNull();
+    ready = true;
+    handler.handleFrame(START);
+    await settle();
+    expect(sent[1]).toMatchObject({ type: 'session.ready' });
+    await handler.dispose('test');
+  });
+
   it('rejects a second session.start on the same connection', async () => {
     const { sent, handler } = make();
     handler.handleFrame(START);

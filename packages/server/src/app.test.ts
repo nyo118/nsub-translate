@@ -67,7 +67,7 @@ describe('backend websocket', () => {
   it('exposes a health endpoint', async () => {
     const res = await app.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, openConnections: 0, activeSessions: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'], engines: {}, recentSessions: [] });
+    expect(res.json()).toMatchObject({ ok: true, ready: true, openConnections: 0, activeSessions: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'], engines: {}, models: null, recentSessions: [] });
     expect(res.json().uptimeSec).toBeGreaterThanOrEqual(0);
   });
 

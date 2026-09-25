@@ -38,6 +38,8 @@ export interface ServerConfig {
   idleTimeoutMs: number;
   /** Where sessions.jsonl is written (LOGS_DIR); "off" disables the file. */
   logsDir: string | null;
+  /** Fetch missing model files automatically (AUTO_DOWNLOAD_MODELS, default on). */
+  autoDownloadModels: boolean;
 }
 
 export function defaultLogsDir(): string {
@@ -87,5 +89,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     logTranscripts: env['LOG_TRANSCRIPTS'] === '1' || env['LOG_TRANSCRIPTS'] === 'true',
     idleTimeoutMs: int(env['IDLE_TIMEOUT_MS'], 30_000, 0),
     logsDir: env['LOGS_DIR'] === 'off' ? null : env['LOGS_DIR'] ? path.resolve(env['LOGS_DIR']) : defaultLogsDir(),
+    autoDownloadModels: !(env['AUTO_DOWNLOAD_MODELS'] === '0' || env['AUTO_DOWNLOAD_MODELS'] === 'false'),
   };
 }

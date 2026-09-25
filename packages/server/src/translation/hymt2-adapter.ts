@@ -30,6 +30,8 @@ export interface HyMt2Config {
   provider?: string;
   /** llama.cpp threads for the translation model. */
   threads: number;
+  /** Download the model on demand before loading (ModelManager). */
+  ensureModel?: () => Promise<void>;
   log: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
 }
 
@@ -130,6 +132,7 @@ export function createHyMt2Factory(config: HyMt2Config): TranslationAdapterFacto
   return {
     provider,
     async prepare() {
+      if (config.ensureModel) await config.ensureModel();
       if (!existsSync(runtime.modelPath())) {
         throw new Error(`Missing translation model:\n  ${runtime.modelPath()}\nRun: npm run models:download`);
       }

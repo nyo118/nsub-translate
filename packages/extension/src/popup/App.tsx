@@ -16,13 +16,39 @@ interface EngineStatus {
   ready: boolean;
   hint?: string;
 }
+interface ModelGroupState {
+  status: 'unknown' | 'missing' | 'downloading' | 'ready' | 'error';
+  item?: string;
+  receivedBytes?: number;
+  totalBytes?: number | null;
+  progress?: number;
+  error?: string;
+}
 interface BackendHealth {
   ok: boolean;
+  ready?: boolean;
   uptimeSec?: number;
   activeSessions?: number;
   asrProvider?: string;
   translationProvider?: string;
   engines?: Record<string, EngineStatus>;
+  models?: { asr: ModelGroupState; translation: ModelGroupState } | null;
+}
+
+function modelProgressText(models: BackendHealth['models']): string | null {
+  if (!models) return null;
+  const parts: string[] = [];
+  for (const [group, st] of [['asr', models.asr], ['translation', models.translation]] as const) {
+    const name = group === 'asr' ? '语音识别模型' : '翻译模型';
+    if (st.status === 'downloading') {
+      const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
+      const pct = st.progress === undefined ? '' : ` ${Math.round(st.progress * 100)}%`;
+      const size = st.totalBytes ? `（${mb(st.receivedBytes ?? 0)} / ${mb(st.totalBytes)}）` : '';
+      parts.push(`${name}下载中${pct}${size}`);
+    } else if (st.status === 'error') parts.push(`${name}准备失败：${st.error ?? ''}`);
+    else if (st.status === 'missing') parts.push(`${name}缺失（自动下载已关闭）`);
+  }
+  return parts.length === 0 ? null : parts.join('；');
 }
 type BackendState = { kind: 'unknown' } | { kind: 'down'; error: string } | { kind: 'up'; health: BackendHealth };
 
@@ -181,7 +207,9 @@ export function App() {
   const isActive = sessionStatus === 'active';
   const status = statusOf(snapshot, error);
   const backendDown = backend.kind === 'down';
-  const canStart = sessionStatus === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true && !backendDown;
+  const backendBusy = backend.kind === 'up' && backend.health.ready === false;
+  const modelText = backend.kind === 'up' ? modelProgressText(backend.health.models) : null;
+  const canStart = sessionStatus === 'idle' && !busy && tab?.platform !== null && tab?.playerFound === true && !backendDown && !backendBusy;
   const canStop = (isActive || sessionStatus === 'starting') && !busy;
   const rawError = error ?? (sessionStatus === 'idle' ? snapshot?.lastError : undefined);
   const shownError = rawError === undefined ? undefined : friendlyError(rawError);
@@ -321,7 +349,9 @@ export function App() {
       {shownError ? (
         <div className="card error-card">{shownError}</div>
       ) : backendDown ? (
-        <div className="card error-card">本地后端未运行（{HEALTHZ_URL} 无响应）。请在终端执行 npm run dev:server，等待「Server listening」后再开始。</div>
+        <div className="card error-card">本地后端未运行（{HEALTHZ_URL} 无响应）。请在终端执行 npm run start:server，等待「Server listening」后再开始。</div>
+      ) : backendBusy ? (
+        <div className="card hint warn-card">后端准备中：{modelText ?? '语音识别模型正在加载'}。就绪后可直接开始，无需重启。</div>
       ) : (
         <div className="card hint">{tabHint(tab)}</div>
       )}
