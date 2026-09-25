@@ -2,7 +2,7 @@
 
 个人用 Chrome 扩展：在 YouTube / Twitch 视频内叠加**双语实时字幕**。
 
-当前状态：**Phase 6 — Beta 与质量收敛**（Phase 0–5 已验收）。兼容性见 `COMPATIBILITY.md`，性能见 `BENCHMARKS.md`。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
+当前版本：**0.1.0（个人使用 Beta）**。文档索引：`CONFIG.md`（配置）、`PRIVACY.md`（隐私）、`TROUBLESHOOTING.md`（排查）、`ROLLBACK.md`（回滚）、`CHANGELOG.md`、`COMPATIBILITY.md`、`BENCHMARKS.md`、`ARCHITECTURE.md`、`TEST_PLAN.md`。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
 
 ## 目录结构
 
@@ -26,12 +26,21 @@ TEST_PLAN.md         自动化与人工测试计划
 
 ## 安装
 
+**方式 A（推荐，一条命令）**：
 ```bash
 nvm use            # 读取 .nvmrc → Node 22
-npm install
-npm run models:download           # 下载 SenseVoice int8（约 160 MB）+ Silero VAD + Hy-MT2-1.8B Q4_K_M（约 1.1 GB）到 packages/server/models
+npm run setup      # npm ci → 下载并校验模型 → 生成 packages/server/.env → 构建
+```
+
+**方式 B（手动）**：
+```bash
+nvm use
+npm ci
+npm run models:download           # SenseVoice int8（约 160 MB）+ Silero VAD + Hy-MT2-1.8B Q4_K_M（约 1.1 GB），自动按 models.lock.json 校验 SHA-256
 npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 ```
+
+**从 GitHub Release 安装扩展**：下载 `nsub-translate-extension-v0.1.0.zip`，核对 `SHA256SUMS.txt`，解压后在 `chrome://extensions` Load unpacked；后端仍按上面方式从源码运行（或解压 `nsub-translate-server-v0.1.0.zip` 后 `npm ci --omit=dev && npm run models:download && node packages/server/dist/index.js`）。
 
 模型文件不进 Git（`packages/server/models/` 已 gitignore）。
 
@@ -47,6 +56,8 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 | `npm run start:server` | 用 `packages/server/dist` 启动后端（需先 build） |
 | `npm run test:e2e` | 先 build，再用 Playwright 加载扩展跑测试：popup/后端握手（mock 后端 :8797），以及把 `www.youtube.com` 解析到本地 HTTPS fixture 页的 content script 回归（字幕层、seek、回放缓存、样式即时生效） |
 | `npm run bench` | 标准性能基准（需后端运行） |
+| `npm run service:install` | macOS 登录自启后端（launchd），`service:status` / `service:restart` / `service:uninstall` |
+| `npm run release -- --tag` | 检查 + 干净构建 + 打包 zip/SHA256 到 `release/` + git tag |
 
 后端环境变量（可写在 `packages/server/.env`，见 `.env.example`；`.env` 不入库）：
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。

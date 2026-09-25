@@ -195,6 +195,25 @@
 | P6-7 | 多语言视频 + 来源 Auto | popup 提示指定语言；诊断区显示检测到的语种 |
 | P6-8 | 会话结束后查看 `packages/server/logs/sessions.jsonl` | 有一行摘要且不含任何字幕文本 |
 
+## Phase 7 增补
+
+### 自动化 / 脚本
+| 项 | 覆盖 |
+|---|---|
+| `npm run release` | lint + typecheck + test → 干净构建 → `release/v0.1.0/` 两个 zip + `SHA256SUMS.txt`；版本三处一致校验 |
+| `npm run models:verify` | 三个模型文件 SHA-256 与 `models.lock.json` 一致；篡改/缺失时非零退出并提示 |
+| `npm run version:set` | root / 三个包 / manifest 同步 |
+| `npm run service:install|status|restart|uninstall` | launchd 用户代理安装、健康检查、卸载 |
+
+### 人工（发布验收）
+| # | 步骤 | 预期 |
+|---|---|---|
+| P7-1 | 解压 `nsub-translate-extension-v0.1.0.zip`，`shasum -a 256` 与 `SHA256SUMS.txt` 一致，Load unpacked | 扩展版本显示 0.1.0，可正常开始字幕 |
+| P7-2 | `npm run service:install` 后重启登录 | 不手动启动，popup 显示后端「运行中」 |
+| P7-3 | 按 `ROLLBACK.md` 演练：切到 tag → `npm ci` → 构建 → 回到 main | 每步成功；扩展/后端版本一致 |
+| P7-4 | 新目录 `git clone` + `npm run setup` | 一条命令完成到可运行 |
+| P7-5 | 阅读 `PRIVACY.md` / `CONFIG.md` / `TROUBLESHOOTING.md` | 与实际行为一致，无遗漏项 |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

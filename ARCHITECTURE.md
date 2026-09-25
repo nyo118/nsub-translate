@@ -67,6 +67,14 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
+## 发布与可复现性（Phase 7）
+
+- **版本**：`scripts/set-version.mjs` 同步 root / 各包 / `manifest.json`；扩展与后端同版本发布，协议版本不兼容时握手即报错。
+- **依赖**：`package-lock.json` 入库，`npm ci` 安装；Node 由 `.nvmrc` 固定（`check-node.mjs` 在每个 root 脚本前校验）。
+- **模型**：`models.lock.json` 记录 SHA-256；`download-models.mjs` 下载后调用 `models-lock.mjs` 校验，不一致即失败。
+- **构建**：`scripts/release.mjs` 删除三个 `dist/` 后重新构建，产出扩展 zip（含 `BUILD.txt`：版本、commit、时间）与后端 zip（dist + package 文件 + 脚本），并写 `SHA256SUMS.txt`；`--tag` 打注解 tag。
+- **运行**：`scripts/service.mjs` 生成 launchd plist（`RunAtLoad`、崩溃自动拉起、日志到 `packages/server/logs/`），从 dist 启动，读取 `.env`。
+
 ## 回归测试基础设施（Phase 6）
 
 - `e2e/fixture-server.ts` 用 openssl 生成 `CN=www.youtube.com` 的自签证书，以 HTTPS 提供 `fixtures/youtube-watch.html`（含 `#movie_player` + 播放静音 WAV 的 `<video>`，支持 Range 以便 seek）。

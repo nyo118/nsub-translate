@@ -1,6 +1,6 @@
 {
   "name": "@lst/extension",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Chrome MV3 extension for Live Subtitle Translator.",
@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lst/protocol": "0.0.1",
+    "@lst/protocol": "0.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

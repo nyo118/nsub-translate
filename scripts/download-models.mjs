@@ -44,3 +44,6 @@ else {
   run('curl', ['-L', '--fail', '-o', mt, 'https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf']);
 }
 console.log(`\nModels ready in ${modelsDir}`);
+// Verify against models.lock.json so a corrupted/partial download never reaches the server.
+const verify = spawnSync('node', [path.join(root, 'scripts/models-lock.mjs')], { stdio: 'inherit', env: { ...process.env, MODELS_DIR: modelsDir } });
+if (verify.status !== 0) process.exit(verify.status ?? 1);

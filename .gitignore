@@ -12,3 +12,4 @@ e2e/.auth/
 packages/server/models/
 packages/server/logs/
 .scratch/
+release/

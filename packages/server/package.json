@@ -1,6 +1,6 @@
 {
   "name": "@lst/server",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Local backend for Live Subtitle Translator (Phase 0: mock subtitle session over WebSocket).",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@fastify/websocket": "^11.3.1",
-    "@lst/protocol": "0.0.1",
+    "@lst/protocol": "0.1.0",
     "fastify": "^5.12.5",
     "node-llama-cpp": "^3.21.1",
     "sherpa-onnx-node": "^1.13.8"
