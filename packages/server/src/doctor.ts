@@ -10,6 +10,15 @@ import { HYMT2_MODEL_FILE } from './translation/hymt2-adapter.js';
  * `npm run doctor` — prints everything needed to debug an install: Node,
  * platform, native ASR module, model files, .env presence. No secrets.
  */
+// Same .env lookup as index.ts so the engine summary reflects what the backend would see.
+for (const candidate of [new URL('../.env', import.meta.url), new URL('../../../.env', import.meta.url)]) {
+  try {
+    process.loadEnvFile(candidate);
+    break;
+  } catch {
+    /* no .env here */
+  }
+}
 const config = loadConfig();
 const lines: string[] = [];
 const ok = (b: boolean) => (b ? '✓' : '✗');
