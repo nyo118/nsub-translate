@@ -15,6 +15,17 @@ describe('SubtitleStore', () => {
     expect(store.size).toBe(1);
   });
 
+  it('keeps the longer text when a partial shrinks on the same prefix, but accepts real corrections', () => {
+    const store = new SubtitleStore();
+    store.apply(t({ segmentId: 'a', revision: 0, sourceText: 'The tribal chief' }));
+    expect(store.apply(t({ segmentId: 'a', revision: 1, sourceText: 'The tribal' }))).toBe(true);
+    expect(store.visible()[0]?.sourceText).toBe('The tribal chief'); // no shrink
+    store.apply(t({ segmentId: 'a', revision: 2, sourceText: 'The tribe' })); // different prefix → real correction
+    expect(store.visible()[0]?.sourceText).toBe('The tribe');
+    store.apply(t({ segmentId: 'a', revision: 3, status: 'final', sourceText: 'The' })); // finals always win
+    expect(store.visible()[0]?.sourceText).toBe('The');
+  });
+
   it('ignores stale or duplicate revisions', () => {
     const store = new SubtitleStore();
     store.apply(t({ segmentId: 'a', revision: 2, sourceText: 'v2' }));

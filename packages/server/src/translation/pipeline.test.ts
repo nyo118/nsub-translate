@@ -58,7 +58,7 @@ describe('TranslationPipeline', () => {
     expect(adapter.calls[0]!.req).toMatchObject({ text: 'Hello world.', sourceLanguage: 'en', targetLanguage: 'zh-CN', context: [] });
     adapter.calls[0]!.resolve(' 你好，世界。 ');
     await flush();
-    expect(out.at(-1)).toMatchObject({ segmentId: 'a', revision: 2, status: 'final', sourceText: 'Hello world.', translatedText: '你好，世界。', endMs: 1000 });
+    expect(out.at(-1)).toMatchObject({ segmentId: 'a', revision: 2, status: 'final', sourceText: 'Hello world.', translatedText: '你好，世界。', endMs: 1000, language: 'en' });
     expect(pipeline.translated).toBe(1);
   });
 

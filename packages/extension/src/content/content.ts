@@ -127,12 +127,17 @@ import { SubtitleCache } from './subtitle-cache.js';
     syncTracker();
     tracker.sample();
     if (ticker === null) {
+      let tick = 0;
       ticker = setInterval(() => {
+        tick += 1;
+        // Keep the subtitles clear of the control bar (cheap DOM read, 4×/s).
+        if (adapter !== null) overlay.setLift(adapter.controlsLift(document));
+        if (tick % 2 !== 0) return;
         syncTracker();
         tracker.sample();
         // Re-render cached lines while playing through a replayed range.
         if (store.visible().length === 0 && !isLive()) renderNow();
-      }, 500);
+      }, 250);
     }
     if (binder?.bind()) {
       overlay.renderNotice(`N Sub: ${isLive() ? '直播' : '影片'}会话已开始，等待字幕…`);
@@ -192,6 +197,10 @@ import { SubtitleCache } from './subtitle-cache.js';
         return false;
       case 'content.sessionStopped':
         stopSession();
+        sendResponse({ ok: true });
+        return false;
+      case 'content.reconnecting':
+        if (active && binder?.ensureMounted()) overlay.renderNotice(`N Sub: 正在重新连接本地后端（第 ${message.attempt} 次）…`);
         sendResponse({ ok: true });
         return false;
       default:

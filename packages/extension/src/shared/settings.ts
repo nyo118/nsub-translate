@@ -41,8 +41,18 @@ export const SOURCE_LANGUAGES: readonly LanguageOption[] = [
   ...TARGET_LANGUAGES,
 ];
 
+export type FontFamilyChoice = 'system' | 'sans' | 'serif' | 'rounded' | 'mono';
+
+export const FONT_FAMILIES: ReadonlyArray<{ code: FontFamilyChoice; label: string; css: string }> = [
+  { code: 'system', label: '系统默认', css: '"Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans", "Microsoft YaHei", sans-serif' },
+  { code: 'sans', label: '无衬线（Noto/思源黑）', css: '"Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans", sans-serif' },
+  { code: 'serif', label: '衬线（宋体/明朝）', css: '"Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "Hiragino Mincho ProN", serif' },
+  { code: 'rounded', label: '圆体', css: '"Yuanti SC", "Hiragino Maru Gothic ProN", "Varela Round", "PingFang SC", sans-serif' },
+  { code: 'mono', label: '等宽', css: 'ui-monospace, Menlo, "SF Mono", "PingFang SC", monospace' },
+];
+
 export interface SubtitleStyle {
-  /** Font size of the translated line in px; the source line is ~10% smaller. */
+  /** Font size of the translated line in px at a 1280 px wide player; the source line is ~10% smaller. */
   fontSize: number;
   /** Distance from the bottom of the player, in percent of player height. */
   position: number;
@@ -50,6 +60,15 @@ export interface SubtitleStyle {
   backgroundOpacity: number;
   showSource: boolean;
   showTranslated: boolean;
+  /** Scale the font with the player width (fullscreen bigger, mini-player smaller). */
+  autoScale: boolean;
+  /** Dark outline around glyphs for busy backgrounds. */
+  outline: boolean;
+  fontFamily: FontFamilyChoice;
+  /** Maximum wrapped lines per text row (source / translated) before clamping. */
+  maxLines: number;
+  /** Move the subtitles up while the player's control bar is visible. */
+  avoidControls: boolean;
 }
 
 export type TranslationEngine = 'hy-mt2' | 'gemini' | 'llm' | 'google';
@@ -86,6 +105,7 @@ export const STYLE_LIMITS = {
   fontSize: { min: 12, max: 48, step: 1 },
   position: { min: 0, max: 60, step: 1 },
   backgroundOpacity: { min: 0, max: 1, step: 0.05 },
+  maxLines: { min: 1, max: 3, step: 1 },
 } as const;
 
 export const DEFAULT_STYLE: SubtitleStyle = {
@@ -94,6 +114,11 @@ export const DEFAULT_STYLE: SubtitleStyle = {
   backgroundOpacity: 0.72,
   showSource: true,
   showTranslated: true,
+  autoScale: true,
+  outline: false,
+  fontFamily: 'system',
+  maxLines: 2,
+  avoidControls: true,
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -136,6 +161,11 @@ export function normalizeSettings(raw: unknown): Settings {
       backgroundOpacity: clamp(s['backgroundOpacity'], DEFAULT_STYLE.backgroundOpacity, STYLE_LIMITS.backgroundOpacity.min, STYLE_LIMITS.backgroundOpacity.max),
       showSource: bool(s['showSource'], DEFAULT_STYLE.showSource),
       showTranslated: bool(s['showTranslated'], DEFAULT_STYLE.showTranslated),
+      autoScale: bool(s['autoScale'], DEFAULT_STYLE.autoScale),
+      outline: bool(s['outline'], DEFAULT_STYLE.outline),
+      fontFamily: FONT_FAMILIES.some((f) => f.code === s['fontFamily']) ? (s['fontFamily'] as FontFamilyChoice) : DEFAULT_STYLE.fontFamily,
+      maxLines: Math.round(clamp(s['maxLines'], DEFAULT_STYLE.maxLines, STYLE_LIMITS.maxLines.min, STYLE_LIMITS.maxLines.max)),
+      avoidControls: bool(s['avoidControls'], DEFAULT_STYLE.avoidControls),
     },
   };
 }

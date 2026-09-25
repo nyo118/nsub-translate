@@ -13,6 +13,7 @@ import { createGoogleTranslationFactory } from './translation/google-adapter.js'
 import { HYMT2_MODEL_FILE, createHyMt2Factory } from './translation/hymt2-adapter.js';
 import { GEMINI_OPENAI_BASE_URL, createOpenAiCompatibleFactory } from './translation/openai-compatible-adapter.js';
 import { TranslationRegistry } from './translation/registry.js';
+import { SessionLog } from './metrics/session-log.js';
 
 export interface EngineStatus {
   /** Model file / API key present. */
@@ -31,6 +32,8 @@ export interface AppOptions {
   engineStatus?: () => Record<string, EngineStatus>;
   idleTimeoutMs?: number;
   logTranscripts?: boolean;
+  /** Directory for logs/sessions.jsonl; null = memory only. */
+  logsDir?: string | null;
 }
 
 const startedAt = Date.now();
@@ -45,6 +48,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   let openConnections = 0;
   let activeSessions = 0;
+  const sessionLog = new SessionLog(options.logsDir ?? null, 10, app.log);
 
   app.get('/healthz', async () => ({
     ok: true,
@@ -55,6 +59,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     translationProvider: options.translation.defaultProvider,
     translationProviders: options.translation.providers,
     engines: options.engineStatus?.() ?? {},
+    recentSessions: sessionLog.recentSessions,
   }));
 
   app.get('/ws', { websocket: true }, (socket, req) => {
@@ -70,6 +75,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
       onSessionCount: (delta) => {
         activeSessions += delta;
       },
+      onSessionSummary: (summary) => sessionLog.record(summary),
       ...(options.metricsIntervalMs === undefined ? {} : { metricsIntervalMs: options.metricsIntervalMs }),
       ...(options.logTranscripts === undefined ? {} : { logTranscripts: options.logTranscripts }),
     });
@@ -191,6 +197,7 @@ export async function startServer(config: ServerConfig): Promise<FastifyInstance
     engineStatus: () => engineStatus(config, translation),
     idleTimeoutMs: config.idleTimeoutMs,
     logTranscripts: config.logTranscripts,
+    logsDir: config.logsDir,
   });
   app.addHook('onClose', async () => translation.dispose());
   await app.listen({ host: config.host, port: config.port });

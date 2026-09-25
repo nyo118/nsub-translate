@@ -36,9 +36,15 @@ export class SubtitleStore {
   /** Returns true when the visible state changed. */
   apply(t: TranscriptMessage): boolean {
     const existing = this.segments.get(t.segmentId);
+    let sourceText = t.sourceText;
     if (existing !== undefined) {
       if (t.revision <= existing.revision) return false;
       if (existing.status === 'final' && t.status !== 'final') return false;
+      // Stable partials: a partial that merely got shorter (model backtracking on the
+      // same prefix) keeps the longer text so the line never shrinks then regrows.
+      if (t.status === 'partial' && existing.status === 'partial' && sourceText.length < existing.sourceText.length && existing.sourceText.startsWith(sourceText)) {
+        sourceText = existing.sourceText;
+      }
     } else {
       this.order.push(t.segmentId);
       while (this.order.length > this.maxSegments) {
@@ -51,7 +57,7 @@ export class SubtitleStore {
       revision: t.revision,
       status: t.status,
       startMs: t.startMs,
-      sourceText: t.sourceText,
+      sourceText,
     };
     if (t.endMs !== undefined) segment.endMs = t.endMs;
     if (t.translatedText !== undefined) segment.translatedText = t.translatedText;

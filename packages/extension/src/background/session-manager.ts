@@ -51,7 +51,8 @@ export interface SessionPorts {
       | { type: 'content.sessionStarted'; sessionId: string; audioOriginWall?: number }
       | { type: 'content.audioOrigin'; sessionId: string; audioOriginWall: number }
       | { type: 'content.transcript'; transcript: TranscriptMessage }
-      | { type: 'content.sessionStopped' },
+      | { type: 'content.sessionStopped' }
+      | { type: 'content.reconnecting'; attempt: number },
   ): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
@@ -80,6 +81,7 @@ export class SessionManager {
   private transcriptCount = 0;
   private metrics: SessionMetricsMessage | undefined;
   private connection: 'connected' | 'reconnecting' = 'connected';
+  private recentLanguages: string[] = [];
 
   constructor(options: SessionManagerOptions) {
     this.ports = options.ports;
@@ -125,6 +127,7 @@ export class SessionManager {
       if (this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
       if (this.metrics !== undefined) snap.metrics = this.metrics;
       snap.connection = this.connection;
+      snap.detectedLanguages = [...new Set(this.recentLanguages)];
     }
     return snap;
   }
@@ -188,6 +191,7 @@ export class SessionManager {
         this.audioLevel = undefined;
         this.metrics = undefined;
         this.connection = 'connected';
+        this.recentLanguages = [];
         await this.setState({
           status: 'active',
           sessionId: result.sessionId,
@@ -259,6 +263,10 @@ export class SessionManager {
       return;
     }
     this.transcriptCount += 1;
+    if (transcript.status === 'final' && transcript.language !== undefined) {
+      this.recentLanguages.push(transcript.language);
+      if (this.recentLanguages.length > 12) this.recentLanguages.shift();
+    }
     await this.ports.notifyContent(current.tabId, { type: 'content.transcript', transcript }).catch((err: unknown) => {
       // The content script may be reloading (navigation). Not fatal.
       this.ports.log('warn', 'could not deliver transcript to tab', String(err));
@@ -273,8 +281,13 @@ export class SessionManager {
     this.metrics = metrics;
   }
 
-  onReconnecting(): void {
+  onReconnecting(attempt = 1): void {
     this.connection = 'reconnecting';
+    void this.getState().then((current) => {
+      if (current.status === 'active' && current.tabId !== undefined) {
+        void this.ports.notifyContent(current.tabId, { type: 'content.reconnecting', attempt }).catch(() => undefined);
+      }
+    });
   }
 
   /** The offscreen document's timer fired: the configured session length is up. */

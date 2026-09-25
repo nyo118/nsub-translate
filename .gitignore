@@ -8,3 +8,5 @@ e2e/.auth/
 .env
 .env.*
 packages/server/models/
+packages/server/logs/
+.scratch/

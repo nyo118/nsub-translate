@@ -53,7 +53,7 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
       translationEngine: 'hy-mt2',
       translatePartials: false,
       sessionLimitHours: 3,
-      style: { fontSize: 30, position: 10, backgroundOpacity: 0.72, showSource: false, showTranslated: true },
+      style: { fontSize: 30, position: 10, backgroundOpacity: 0.72, showSource: false, showTranslated: true, autoScale: true, outline: false, fontFamily: 'system', maxLines: 2, avoidControls: true },
     },
   });
 
@@ -69,9 +69,8 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
 });
 
 test('an extension page can complete the protocol handshake with the local backend', async ({ context, extensionId }) => {
-  // Provider-agnostic: with `reuseExistingServer` the backend may be running SenseVoice,
-  // where a silent frame yields no transcript. We assert the handshake, that a binary
-  // audio frame is accepted without error, and a clean stop.
+  // Against the test backend (mock providers on :8797): handshake, one binary
+  // audio frame accepted without error, and a clean stop.
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   const messages = await page.evaluate(
@@ -82,7 +81,7 @@ test('an extension page can complete the protocol handshake with the local backe
         ws.binaryType = 'arraybuffer';
         const timer = setTimeout(() => reject(new Error(`timeout; received: ${received.join(' | ')}`)), 8000);
         ws.onopen = () =>
-          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
+          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 5, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
         ws.onmessage = (ev) => {
           const msg = JSON.parse(String(ev.data)) as { type: string; sessionId?: string; code?: string };
           received.push(msg.type === 'session.error' ? `session.error:${msg.code}` : msg.type);
@@ -98,7 +97,7 @@ test('an extension page can complete the protocol handshake with the local backe
         };
         ws.onerror = () => reject(new Error('websocket error'));
       }),
-    'ws://127.0.0.1:8787/ws',
+    'ws://127.0.0.1:8797/ws',
   );
   expect(messages[0]).toBe('session.ready');
   expect(messages.at(-1)).toBe('session.stopped');

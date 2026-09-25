@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fixture - YouTube watch page</title>
+    <style>
+      body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+      #movie_player { position: relative; width: 960px; height: 540px; background: #000; margin: 20px; }
+      video { width: 100%; height: 100%; }
+      .ytp-chrome-bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: rgba(255,255,255,0.1); }
+    </style>
+  </head>
+  <body>
+    <!-- Minimal structure the YouTube PlayerAdapter looks for. The <video> plays a silent WAV so
+         currentTime/seeking/seeked behave like real media. -->
+    <div id="movie_player" class="html5-video-player ytp-autohide">
+      <video class="html5-main-video" src="/silence.wav" muted playsinline></video>
+      <div class="ytp-chrome-bottom"></div>
+    </div>
+    <script>
+      const v = document.querySelector('video');
+      window.__fixture = { video: v };
+    </script>
+  </body>
+</html>

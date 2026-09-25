@@ -191,6 +191,17 @@ describe('SessionManager', () => {
     expect((await m.snapshot()).transcriptCount).toBe(1);
   });
 
+  it('collects distinct detected languages from recent finals', async () => {
+    const world = makeWorld();
+    const m = manager(world);
+    await m.start();
+    await m.onTranscript({ ...transcript, status: 'final', endMs: 1, language: 'en' });
+    await m.onTranscript({ ...transcript, segmentId: 'b', status: 'final', endMs: 1, language: 'ja' });
+    await m.onTranscript({ ...transcript, segmentId: 'c', status: 'final', endMs: 1, language: 'en' });
+    await m.onTranscript({ ...transcript, segmentId: 'd', language: 'ko' }); // partial: ignored
+    expect((await m.snapshot()).detectedLanguages).toEqual(['en', 'ja']);
+  });
+
   it('stops when the session tab is closed, ignores other tabs', async () => {
     const world = makeWorld();
     const m = manager(world);
@@ -232,7 +243,7 @@ describe('SessionManager', () => {
     expect(snap.asr).toEqual({ provider: 'mock', language: 'auto' });
     expect(snap.translation).toEqual({ provider: 'mock', targetLanguage: 'zh-TW' });
     expect(snap.connection).toBe('connected');
-    m.onMetrics({ type: 'session.metrics', sessionId: 'sid-1', audioSeconds: 3, partials: 2, finals: 1, avgDecodeMs: 300, avgLatencyMs: 800, translated: 1, avgTranslateMs: 1200, translationBacklog: 0 });
+    m.onMetrics({ type: 'session.metrics', sessionId: 'sid-1', audioSeconds: 3, partials: 2, finals: 1, avgDecodeMs: 300, avgLatencyMs: 800, translated: 1, avgTranslateMs: 1200, translationBacklog: 0, asrLatencyP95Ms: 1500, translateP95Ms: 2000, translationCoverage: 1 });
     m.onReconnecting();
     snap = await m.snapshot();
     expect(snap.metrics?.avgLatencyMs).toBe(800);

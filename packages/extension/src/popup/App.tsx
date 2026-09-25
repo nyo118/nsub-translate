@@ -3,7 +3,7 @@ import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_SETTINGS, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { DEFAULT_SETTINGS, FONT_FAMILIES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
 import { friendlyError } from '../shared/friendly-error.js';
 import { BACKEND_WS_URL } from '../shared/config.js';
 
@@ -188,6 +188,9 @@ export function App() {
   const engineStatus = backend.kind === 'up' ? backend.health.engines?.[settings.translationEngine] : undefined;
   const engineUnavailable = engineStatus !== undefined && !engineStatus.configured;
   const uptime = snapshot?.startedAt !== undefined && isActive ? formatDuration(nowMs - snapshot.startedAt) : null;
+  // Real-world hints: the local translator cannot keep up / auto-detect keeps flipping.
+  const slowTranslation = isActive && snapshot?.metrics !== undefined && snapshot.metrics.finals >= 5 && (snapshot.metrics.translationCoverage < 0.6 || snapshot.metrics.avgTranslateMs > 5000) && snapshot.translation?.provider === 'hy-mt2';
+  const languageFlipping = isActive && (snapshot?.sourceLanguage === 'auto') && (snapshot?.detectedLanguages?.length ?? 0) >= 2;
 
   const diagnostics = {
     time: new Date().toISOString(),
@@ -278,6 +281,10 @@ export function App() {
             <button className="btn primary running" disabled>
               ● 正在翻译
             </button>
+          ) : sessionStatus === 'starting' || busy ? (
+            <button className="btn primary running" disabled>
+              正在启动…{settings.translationEngine !== 'hy-mt2' ? '（首次选用的引擎需要加载，最多 1 分钟）' : ''}
+            </button>
           ) : (
             <button className="btn primary" disabled={!canStart} onClick={() => void run('popup.start')}>
               ▶ 开始字幕
@@ -305,6 +312,12 @@ export function App() {
         </div>
       </section>
 
+      {slowTranslation && (
+        <div className="card hint warn-card">本机翻译跟不上（覆盖率 {Math.round((snapshot?.metrics?.translationCoverage ?? 0) * 100)}%，平均 {((snapshot?.metrics?.avgTranslateMs ?? 0) / 1000).toFixed(1)} s/句）。建议在「翻译引擎」改用 LM Studio 或 Gemini，下次开始时生效。</div>
+      )}
+      {languageFlipping && (
+        <div className="card hint warn-card">自动检测到多种语言（{snapshot?.detectedLanguages?.join(' / ')}）。如果这个视频只有一种语言，在「来源」里指定它可以提高识别准确率。</div>
+      )}
       {shownError ? (
         <div className="card error-card">{shownError}</div>
       ) : backendDown ? (
@@ -340,6 +353,31 @@ export function App() {
             </label>
             <label className="check">
               <input type="checkbox" checked={settings.style.showTranslated} onChange={(e) => updateStyle({ showTranslated: e.target.checked })} /> 显示翻译
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={settings.style.autoScale} onChange={(e) => updateStyle({ autoScale: e.target.checked })} /> 字号随播放器大小自动缩放
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={settings.style.avoidControls} onChange={(e) => updateStyle({ avoidControls: e.target.checked })} /> 控制条出现时自动上移
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={settings.style.outline} onChange={(e) => updateStyle({ outline: e.target.checked })} /> 文字描边
+            </label>
+            <label className="slider">
+              <span>字体</span>
+              <select className="inline-select" value={settings.style.fontFamily} onChange={(e) => updateStyle({ fontFamily: e.target.value as FontFamilyChoice })}>
+                {FONT_FAMILIES.map((f) => (
+                  <option key={f.code} value={f.code}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <span className="val" />
+            </label>
+            <label className="slider">
+              <span>每行最多</span>
+              <input type="range" min={STYLE_LIMITS.maxLines.min} max={STYLE_LIMITS.maxLines.max} step={STYLE_LIMITS.maxLines.step} value={settings.style.maxLines} onChange={(e) => updateStyle({ maxLines: Number(e.target.value) })} />
+              <span className="val">{settings.style.maxLines} 行</span>
             </label>
             <label className="slider">
               <span>会话上限</span>
@@ -397,12 +435,20 @@ export function App() {
                   </span>
                 </div>
                 {snapshot?.metrics && (
-                  <div className="row">
-                    <span className="label">音频 / 延迟</span>
-                    <span className="value">
-                      {snapshot.metrics.audioSeconds}s · 识别 {snapshot.metrics.avgLatencyMs}ms · 翻译 {snapshot.metrics.avgTranslateMs}ms
-                    </span>
-                  </div>
+                  <>
+                    <div className="row">
+                      <span className="label">音频 / 延迟</span>
+                      <span className="value">
+                        {snapshot.metrics.audioSeconds}s · 识别 {snapshot.metrics.avgLatencyMs}ms (p95 {snapshot.metrics.asrLatencyP95Ms}) · 翻译 {snapshot.metrics.avgTranslateMs}ms (p95 {snapshot.metrics.translateP95Ms})
+                      </span>
+                    </div>
+                    <div className="row">
+                      <span className="label">翻译覆盖 / 语种</span>
+                      <span className="value">
+                        {Math.round(snapshot.metrics.translationCoverage * 100)}% · {snapshot.detectedLanguages?.join('/') || '—'}
+                      </span>
+                    </div>
+                  </>
                 )}
               </>
             )}

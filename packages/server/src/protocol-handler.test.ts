@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
+import { AUDIO_FORMAT, PROTOCOL_VERSION, type ServerMessage } from '@lst/protocol';
 import { ConnectionHandler } from './protocol-handler.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createMockTranslationFactory } from './translation/mock-adapter.js';
@@ -7,7 +7,7 @@ import { TranslationRegistry } from './translation/registry.js';
 import type { TranslationAdapterFactory } from './translation/types.js';
 
 const log = { info: () => {}, warn: () => {} };
-const START = JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const START = JSON.stringify({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
 const READY = { type: 'session.ready', sessionId: 'sid-1', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
 
 function mockRegistry(extra: Record<string, () => TranslationAdapterFactory> = {}) {
@@ -44,7 +44,7 @@ describe('ConnectionHandler', () => {
     const { sent, handler } = make();
     handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 99, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT }));
     expect(sent[0]).toMatchObject({ type: 'session.error', code: 'unsupported_protocol_version' });
-    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
+    handler.handleFrame(JSON.stringify({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { ...AUDIO_FORMAT, sampleRate: 44100 } }));
     expect(sent[1]).toMatchObject({ type: 'session.error', code: 'unsupported_audio_format' });
   });
 

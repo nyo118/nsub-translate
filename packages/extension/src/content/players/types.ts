@@ -14,6 +14,11 @@ export interface PlayerAdapter {
   /** Whether the current page is a live stream (no seeking, no replay cache). */
   isLive(root: ParentNode, video: HTMLVideoElement | null): boolean;
   /**
+   * Height in px the subtitles should be raised by while the player's control
+   * bar is showing (0 when hidden). Adapters read the player's own state.
+   */
+  controlsLift(root: ParentNode): number;
+  /**
    * Start watching for player changes. `onChange` is called whenever the
    * adapter believes the container may have changed; the caller re-checks.
    * Returns a function that stops watching.

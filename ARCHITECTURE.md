@@ -67,6 +67,19 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
+## 回归测试基础设施（Phase 6）
+
+- `e2e/fixture-server.ts` 用 openssl 生成 `CN=www.youtube.com` 的自签证书，以 HTTPS 提供 `fixtures/youtube-watch.html`（含 `#movie_player` + 播放静音 WAV 的 `<video>`，支持 Range 以便 seek）。
+- Playwright 以 `--host-resolver-rules=MAP www.youtube.com 127.0.0.1` + `--ignore-certificate-errors` 启动 Chromium，扩展的 content script 因 `*://*.youtube.com/*` 匹配被注入 fixture 页；测试通过 Service Worker 的 `chrome.tabs.sendMessage` 驱动 content script（无需 tabCapture）。youtube.com 在 HSTS 预加载列表中，故必须 HTTPS。
+- e2e 后端固定 `:8797`（mock 引擎、`LOGS_DIR=off`），不再与开发后端争抢 8787。
+
+## 可读性机制（Phase 6）
+
+- 字号：`--lst-scale = clamp(playerWidth / 1280, 0.55, 2.2)`（`ResizeObserver` 监听容器）；`autoScale` 关闭则为 1。
+- 上移：content script 每 250 ms 读取 `adapter.controlsLift(document)`（YouTube：`#movie_player` 无 `ytp-autohide` 时为 `.ytp-chrome-bottom` 高度 + 12；Twitch：控制层可见时其高度 + 12）→ `--lst-lift`。
+- 稳定：`SubtitleStore.apply` 对同前缀变短的 partial 保留长文本；最后一个字幕框 `.lst-current` 设 `min-height`（按显示行数与字号计算）。
+- 描边用 8 方向 `text-shadow`；行数用 `-webkit-line-clamp`。
+
 ## 稳定性机制（Phase 5）
 
 - **心跳**：`BackendClient` 在 `session.ready` 后每 15 s 发 `session.ping`；任何入站消息都刷新 `lastInboundAt`；30 s 无入站 → 主动关闭并合成 close 事件 → 进入既有的重连逻辑。后端 `app.ts` 对每个连接维护空闲计时器（默认 30 s）。

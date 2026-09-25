@@ -239,6 +239,7 @@ export class TranslationPipeline {
     };
     if (seg.endMs !== undefined) message.endMs = seg.endMs;
     if (seg.translatedText !== undefined) message.translatedText = seg.translatedText;
+    if (seg.language !== undefined) message.language = seg.language;
     this.o.emit(message);
   }
 

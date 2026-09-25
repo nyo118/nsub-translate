@@ -39,7 +39,7 @@ describe('validateClientMessage', () => {
     expect(validateClientMessage({ ...start, audio: { ...AUDIO_FORMAT, encoding: 'opus' } }).ok).toBe(false);
   });
   it('rejects a wrong protocol version', () => {
-    const result = validateClientMessage({ ...start, protocolVersion: 3 });
+    const result = validateClientMessage({ ...start, protocolVersion: 4 });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/protocolVersion/);
   });
@@ -72,7 +72,7 @@ describe('validateServerMessage', () => {
   };
   it('accepts a minimal transcript and preserves optional fields', () => {
     expect(validateServerMessage(transcript)).toEqual({ ok: true, message: transcript });
-    const full = { ...transcript, status: 'final', endMs: 1200, translatedText: '你好' };
+    const full = { ...transcript, status: 'final', endMs: 1200, translatedText: '你好', language: 'en' };
     expect(validateServerMessage(full)).toEqual({ ok: true, message: full });
   });
   it('rejects malformed transcripts', () => {
@@ -85,9 +85,10 @@ describe('validateServerMessage', () => {
     const ready = { type: 'session.ready', sessionId: 's1', asr: { provider: 'mock', language: 'auto' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
     expect(validateServerMessage(ready)).toEqual({ ok: true, message: ready });
     expect(validateServerMessage({ type: 'session.ready', sessionId: 's1', asr: ready.asr }).ok).toBe(false);
-    const metrics = { type: 'session.metrics', sessionId: 's1', audioSeconds: 12.5, partials: 3, finals: 1, avgDecodeMs: 420, avgLatencyMs: 900, translated: 1, avgTranslateMs: 1500, translationBacklog: 0 };
+    const metrics = { type: 'session.metrics', sessionId: 's1', audioSeconds: 12.5, partials: 3, finals: 1, avgDecodeMs: 420, avgLatencyMs: 900, translated: 1, avgTranslateMs: 1500, translationBacklog: 0, asrLatencyP95Ms: 1400, translateP95Ms: 2600, translationCoverage: 1 };
     expect(validateServerMessage(metrics)).toEqual({ ok: true, message: metrics });
     expect(validateServerMessage({ ...metrics, avgLatencyMs: -1 }).ok).toBe(false);
+    expect(validateServerMessage({ ...metrics, translationCoverage: 1.5 }).ok).toBe(false);
     expect(validateServerMessage({ type: 'session.pong', sessionId: 's1' }).ok).toBe(true);
     expect(validateServerMessage({ type: 'session.stopped', sessionId: 's1' }).ok).toBe(true);
     expect(validateServerMessage({ type: 'session.error', code: 'invalid_message', message: 'bad' })).toEqual({

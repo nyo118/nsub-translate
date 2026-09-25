@@ -5,7 +5,9 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 4 as const;
+export const PROTOCOL_VERSION = 5 as const;
+
+/** v5: percentile latency and translation coverage in `session.metrics`. */
 
 /** v4: `session.start.options.translationProvider` lets the client pick the translation engine per session. */
 
@@ -109,6 +111,12 @@ export interface SessionMetricsMessage {
   avgTranslateMs: number;
   /** Finals waiting for translation right now. */
   translationBacklog: number;
+  /** 95th percentile of recognizer latency over the recent window (ms). */
+  asrLatencyP95Ms: number;
+  /** 95th percentile of translation time over the recent window (ms). */
+  translateP95Ms: number;
+  /** translated finals / finals so far (0..1). */
+  translationCoverage: number;
 }
 
 export interface TranscriptMessage {
@@ -123,6 +131,8 @@ export interface TranscriptMessage {
   endMs?: number;
   sourceText: string;
   translatedText?: string;
+  /** Language detected by the recognizer for this segment (e.g. "en", "ja"), when known. */
+  language?: string;
 }
 
 export interface SessionPongMessage {

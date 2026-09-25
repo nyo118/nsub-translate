@@ -33,7 +33,9 @@ describe('normalizeSettings', () => {
     const s = normalizeSettings({ sourceLanguage: 'ja', targetLanguage: 'en', style: { fontSize: 999, position: -5, backgroundOpacity: 0.5, showSource: false } });
     expect(s.sourceLanguage).toBe('ja');
     expect(s.targetLanguage).toBe('en');
-    expect(s.style).toEqual({ fontSize: 48, position: 0, backgroundOpacity: 0.5, showSource: false, showTranslated: true });
+    expect(s.style).toEqual({ ...DEFAULT_STYLE, fontSize: 48, position: 0, backgroundOpacity: 0.5, showSource: false, showTranslated: true });
+    expect(normalizeSettings({ style: { fontFamily: 'serif', maxLines: 9, outline: true, autoScale: false } }).style).toMatchObject({ fontFamily: 'serif', maxLines: 3, outline: true, autoScale: false });
+    expect(normalizeSettings({ style: { fontFamily: 'comic' } }).style.fontFamily).toBe('system');
   });
   it('normalises the translation engine', () => {
     expect(normalizeSettings({ translationEngine: 'google' }).translationEngine).toBe('google');

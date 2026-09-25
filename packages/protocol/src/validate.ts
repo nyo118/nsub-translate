@@ -137,9 +137,10 @@ function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
 
 function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessage> {
   if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
-  for (const key of ['audioSeconds', 'partials', 'finals', 'avgDecodeMs', 'avgLatencyMs', 'translated', 'avgTranslateMs', 'translationBacklog'] as const) {
+  for (const key of ['audioSeconds', 'partials', 'finals', 'avgDecodeMs', 'avgLatencyMs', 'translated', 'avgTranslateMs', 'translationBacklog', 'asrLatencyP95Ms', 'translateP95Ms', 'translationCoverage'] as const) {
     if (!isFiniteNumber(value[key]) || value[key] < 0) return { ok: false, error: `${key} must be a number >= 0` };
   }
+  if ((value['translationCoverage'] as number) > 1) return { ok: false, error: 'translationCoverage must be <= 1' };
   return {
     ok: true,
     message: {
@@ -153,6 +154,9 @@ function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessag
       translated: value['translated'] as number,
       avgTranslateMs: value['avgTranslateMs'] as number,
       translationBacklog: value['translationBacklog'] as number,
+      asrLatencyP95Ms: value['asrLatencyP95Ms'] as number,
+      translateP95Ms: value['translateP95Ms'] as number,
+      translationCoverage: value['translationCoverage'] as number,
     },
   };
 }
@@ -168,6 +172,7 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
   if (value['translatedText'] !== undefined && typeof value['translatedText'] !== 'string') {
     return { ok: false, error: 'translatedText must be a string' };
   }
+  if (value['language'] !== undefined && !isNonEmptyString(value['language'])) return { ok: false, error: 'language must be a non-empty string' };
   const message: TranscriptMessage = {
     type: 'transcript',
     sessionId: value['sessionId'],
@@ -179,6 +184,7 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
   };
   if (value['endMs'] !== undefined) message.endMs = value['endMs'];
   if (value['translatedText'] !== undefined) message.translatedText = value['translatedText'];
+  if (value['language'] !== undefined) message.language = value['language'];
   return { ok: true, message };
 }
 

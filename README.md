@@ -2,7 +2,7 @@
 
 个人用 Chrome 扩展：在 YouTube / Twitch 视频内叠加**双语实时字幕**。
 
-当前状态：**Phase 5 — 稳定性、隐私与个人使用品质**（Phase 0–4 已验收）。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
+当前状态：**Phase 6 — Beta 与质量收敛**（Phase 0–5 已验收）。兼容性见 `COMPATIBILITY.md`，性能见 `BENCHMARKS.md`。tab 音频以 16 kHz PCM 流送到本地后端，由**本机 SenseVoice-Small**（sherpa-onnx，中/英/日/韩/粤语自动检测）识别，再由**本机 Hy-MT2-1.8B**（腾讯混元翻译模型，GGUF via node-llama-cpp）翻译成目标语言；也可切换为 Google Cloud Translation。字幕层显示原文 + 译文。全部默认在本机运行，无需任何 API key。
 
 ## 目录结构
 
@@ -45,7 +45,8 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 | `npm run build` | 依次构建 protocol → server → extension（产物在各包 `dist/`） |
 | `npm run dev:server` | 启动本地后端（`tsx watch`，改代码自动重启），监听 `ws://127.0.0.1:8787/ws` |
 | `npm run start:server` | 用 `packages/server/dist` 启动后端（需先 build） |
-| `npm run test:e2e` | 先 build，再用 Playwright 加载扩展跑 smoke 测试（自动启动后端） |
+| `npm run test:e2e` | 先 build，再用 Playwright 加载扩展跑测试：popup/后端握手（mock 后端 :8797），以及把 `www.youtube.com` 解析到本地 HTTPS fixture 页的 content script 回归（字幕层、seek、回放缓存、样式即时生效） |
+| `npm run bench` | 标准性能基准（需后端运行） |
 
 后端环境变量（可写在 `packages/server/.env`，见 `.env.example`；`.env` 不入库）：
 - `ASR_PROVIDER`：`sensevoice`（默认，本机识别）或 `mock`（固定脚本，测试用）。
@@ -144,6 +145,16 @@ npm run build
 - **速率限制**：云端引擎按每分钟请求数限流（`GEMINI_RPM` 默认 12，`LLM_RPM` 默认不限）；收到 429 后冷却 15 s；后端对超过每秒 25 帧的音频丢弃多余帧。
 - **诊断区（popup）**：后端是否运行与运行时长、各引擎状态（✓ 已加载 / ○ 已配置未加载 / ✗ 未配置）、会话时长与上限、字幕数、重连次数、识别/翻译延迟、最近一次原始错误；「复制诊断信息」把以上内容（不含密钥）复制为 JSON，便于排查。popup 为此新增了 `http://127.0.0.1:8787/*` 权限，只用于读取 `/healthz`。
 - **错误提示**：常见错误已翻译成可操作的中文（后端未运行、引擎未配置、需要先打开 popup、页面需刷新等）；原始信息保留在诊断区。
+
+## 字幕可读性（Phase 6）
+
+「字幕样式」新增：**字号随播放器大小自动缩放**（以 1280 px 宽为基准，0.55–2.2 倍）、**控制条出现时自动上移**（YouTube 按 `ytp-autohide` 状态，Twitch 按控制层可见性）、**文字描边**、**字体**（系统 / 无衬线 / 衬线 / 圆体 / 等宽）、**每行最多 1–3 行**（超出截断）。partial 更新时若文字只是变短（模型回退）保留较长版本，当前字幕框保持固定高度，避免上下跳动。
+
+## 质量指标（Phase 6）
+
+- 后端每个会话结束时把**不含文本**的摘要追加到 `packages/server/logs/sessions.jsonl`（时长、音频秒数、句数、识别 p50/p95、翻译 p50/p95、覆盖率、失败数、错误码）；`LOGS_DIR=off` 关闭。`/healthz` 返回最近 10 个会话。
+- popup 诊断区显示当前会话的识别/翻译 p95 与翻译覆盖率；本机翻译跟不上（覆盖率 < 60% 或平均 > 5 s）时提示改用 LM Studio / Gemini；自动检测到多种语言时提示在「来源」指定语言。
+- `npm run bench -- --port 8787 --minutes 3 --engine hy-mt2`：用固定多语音频跑标准基准，输出延迟分位数、覆盖率与后端 CPU/RSS。
 
 ## 排查
 

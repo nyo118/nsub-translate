@@ -9,6 +9,7 @@ import {
 import { Session } from './session.js';
 import type { AsrAdapterFactory } from './asr/types.js';
 import type { TranslationRegistry } from './translation/registry.js';
+import type { SessionSummary } from './metrics/session-log.js';
 
 export interface ConnectionLogger {
   info: (obj: Record<string, unknown>, msg: string) => void;
@@ -24,6 +25,7 @@ export interface ConnectionHandlerOptions {
   metricsIntervalMs?: number;
   /** +1 when a session becomes running, -1 when it stops (for /healthz). */
   onSessionCount?: (delta: 1 | -1) => void;
+  onSessionSummary?: (summary: SessionSummary) => void;
   logTranscripts?: boolean;
 }
 
@@ -42,6 +44,7 @@ export class ConnectionHandler {
   private readonly newSessionId: () => string;
   private readonly metricsIntervalMs: number;
   private readonly onSessionCount: (delta: 1 | -1) => void;
+  private readonly onSessionSummary: (summary: SessionSummary) => void;
   private readonly logTranscripts: boolean;
   private droppedAudioFrames = 0;
 
@@ -53,6 +56,7 @@ export class ConnectionHandler {
     this.newSessionId = options.newSessionId ?? (() => randomUUID());
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;
     this.onSessionCount = options.onSessionCount ?? (() => {});
+    this.onSessionSummary = options.onSessionSummary ?? (() => {});
     this.logTranscripts = options.logTranscripts ?? false;
   }
 
@@ -186,7 +190,9 @@ export class ConnectionHandler {
     this.session = null;
     this.onSessionCount(-1);
     await session.stop();
-    this.log.info({ sessionId: session.sessionId, reason, metrics: session.metrics() }, 'session stopped');
+    const summary = session.summary(reason);
+    this.onSessionSummary(summary);
+    this.log.info({ sessionId: session.sessionId, reason, summary }, 'session stopped');
   }
 
   private error(code: SessionErrorCode, message: string): void {

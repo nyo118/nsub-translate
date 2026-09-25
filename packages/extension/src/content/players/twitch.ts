@@ -16,6 +16,15 @@ export const twitchAdapter: PlayerAdapter = {
   findVideo(root) {
     return this.findContainer(root)?.querySelector<HTMLVideoElement>('video') ?? null;
   },
+  controlsLift(root) {
+    const container = this.findContainer(root);
+    if (container === null) return 0;
+    // Twitch keeps the controls in the DOM; they fade via the player's own state class / hover.
+    const controls = container.querySelector<HTMLElement>('[data-a-target="player-controls"], .player-controls');
+    if (controls === null) return 0;
+    const visible = controls.offsetHeight > 0 && (container.matches(':hover') || getComputedStyle(controls).opacity !== '0');
+    return visible ? controls.offsetHeight + 12 : 0;
+  },
   isLive(_root, _video) {
     // Twitch: channel pages are live; /videos/<id> and /<channel>/clip/<id> URLs are on-demand.
     const path = typeof location !== 'undefined' ? location.pathname : '';

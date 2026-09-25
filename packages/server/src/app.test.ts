@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
-import { AUDIO_FORMAT, validateServerMessage, type ServerMessage } from '@lst/protocol';
+import { AUDIO_FORMAT, PROTOCOL_VERSION, validateServerMessage, type ServerMessage } from '@lst/protocol';
 import { buildApp } from './app.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createMockTranslationFactory } from './translation/mock-adapter.js';
 import { TranslationRegistry } from './translation/registry.js';
 
-const START = JSON.stringify({ type: 'session.start', protocolVersion: 4, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+const START = JSON.stringify({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
 
 /**
  * Integration test: a real Fastify server on an ephemeral loopback port and
@@ -67,7 +67,7 @@ describe('backend websocket', () => {
   it('exposes a health endpoint', async () => {
     const res = await app.inject({ method: 'GET', url: '/healthz' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ ok: true, openConnections: 0, activeSessions: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'], engines: {} });
+    expect(res.json()).toMatchObject({ ok: true, openConnections: 0, activeSessions: 0, asrProvider: 'mock', translationProvider: 'mock', translationProviders: ['mock'], engines: {}, recentSessions: [] });
     expect(res.json().uptimeSec).toBeGreaterThanOrEqual(0);
   });
 
@@ -123,6 +123,8 @@ describe('backend websocket', () => {
     const after = (await app.inject({ method: 'GET', url: '/healthz' })).json();
     expect(after.openConnections).toBe(0);
     expect(after.activeSessions).toBe(0);
+    expect(after.recentSessions).toHaveLength(1);
+    expect(after.recentSessions[0]).toMatchObject({ reason: 'socket closed', asrProvider: 'mock' });
   });
 
   it('closes a connection that stays silent longer than the idle timeout', async () => {

@@ -12,6 +12,13 @@ export const youtubeAdapter: PlayerAdapter = {
   findVideo(root) {
     return this.findContainer(root)?.querySelector<HTMLVideoElement>('video.html5-main-video, video') ?? null;
   },
+  controlsLift(root) {
+    const container = this.findContainer(root);
+    if (container === null || container.classList.contains('ytp-autohide')) return 0;
+    // Controls visible: bottom chrome (~48 px) plus the progress bar.
+    const bar = container.querySelector<HTMLElement>('.ytp-chrome-bottom');
+    return (bar?.offsetHeight || 48) + 12;
+  },
   isLive(root, video) {
     const container = this.findContainer(root);
     // YouTube marks live players with the `ytp-live` class and a live badge; an infinite duration is the generic signal.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
-import { AUDIO_FORMAT, type ServerMessage } from '@lst/protocol';
+import { AUDIO_FORMAT, PROTOCOL_VERSION, type ServerMessage } from '@lst/protocol';
 import { BackendClient, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, type ReconnectPolicy, type SocketLike } from './backend-client.js';
 
 const READY = { type: 'session.ready', sessionId: 'sid', asr: { provider: 'mock', language: 'en' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };
@@ -64,7 +64,7 @@ describe('BackendClient', () => {
     const p = client.connect('ws://x', langs, 1000);
     const s = sockets[0]!;
     s.open();
-    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: 4, ...langs, audio: AUDIO_FORMAT });
+    expect(JSON.parse(s.sent[0]!)).toEqual({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, ...langs, audio: AUDIO_FORMAT });
     s.receive(READY);
     await expect(p).resolves.toBe('sid');
     expect(client.sessionId).toBe('sid');

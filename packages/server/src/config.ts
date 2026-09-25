@@ -36,6 +36,13 @@ export interface ServerConfig {
   logTranscripts: boolean;
   /** Close a WebSocket that sent nothing (audio or ping) for this long. */
   idleTimeoutMs: number;
+  /** Where sessions.jsonl is written (LOGS_DIR); "off" disables the file. */
+  logsDir: string | null;
+}
+
+export function defaultLogsDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'logs');
 }
 
 /** packages/server/models by default (works from src via tsx and from dist). */
@@ -79,5 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     llmRpm: int(env['LLM_RPM'], 0, 0),
     logTranscripts: env['LOG_TRANSCRIPTS'] === '1' || env['LOG_TRANSCRIPTS'] === 'true',
     idleTimeoutMs: int(env['IDLE_TIMEOUT_MS'], 30_000, 0),
+    logsDir: env['LOGS_DIR'] === 'off' ? null : env['LOGS_DIR'] ? path.resolve(env['LOGS_DIR']) : defaultLogsDir(),
   };
 }

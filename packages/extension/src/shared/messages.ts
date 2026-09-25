@@ -36,6 +36,8 @@ export interface SessionSnapshot {
   /** Diagnostics. */
   reconnects?: number;
   sessionLimitMs?: number;
+  /** Distinct languages the recognizer reported among the last finals (auto-detect quality hint). */
+  detectedLanguages?: string[];
 }
 
 // ---- Popup -> Background --------------------------------------------------
@@ -109,6 +111,7 @@ export type ToContent =
   | { target: 'content'; type: 'content.audioOrigin'; sessionId: string; audioOriginWall: number }
   | { target: 'content'; type: 'content.transcript'; transcript: TranscriptMessage }
   | { target: 'content'; type: 'content.sessionStopped' }
+  | { target: 'content'; type: 'content.reconnecting'; attempt: number }
   | { target: 'content'; type: 'content.detect' };
 
 export interface ContentDetectResponse {

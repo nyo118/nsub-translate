@@ -172,6 +172,29 @@
 | P5-7 | 真实观看 1 小时 | 扩展进程内存（Chrome 任务管理器）无持续增长；后端 RSS 稳定；字幕体验一致 |
 | P5-8 | 选 Gemini 连续说话 5 分钟 | 不触发 429 或触发后自动恢复；诊断区无异常 |
 
+## Phase 6 增补
+
+### 自动化
+| 层 | 覆盖 |
+|---|---|
+| 协议 v5 | p95/覆盖率字段、`transcript.language` |
+| 后端 | `SampleSeries` 分位数、`SessionLog` JSONL（不含文本）、healthz `recentSessions`、`Session.summary()` |
+| 扩展 | 样式新字段归一化、overlay 缩放/上移/描边/字体/行数/当前框、partial 不回退、adapter `controlsLift`/`isLive`、SW 语种收集 |
+| **e2e（fixture）** | 检测 → 挂载 → 字幕 → 停止清理；seek 清屏与过期丢弃；回放缓存即时显示；样式即时生效 |
+| 基准 | `scripts/bench.mjs`，结果见 `BENCHMARKS.md` |
+
+### 人工（Beta 收敛）
+| # | 步骤 | 预期 |
+|---|---|---|
+| P6-1 | 按 `COMPATIBILITY.md` 中 ⏳ 项逐一验证并回填 | 每项有 ✓/△/✗ 结论 |
+| P6-2 | 鼠标移入播放器让控制条出现 | 字幕上移不被遮挡；控制条隐藏后回落（约 0.16 s 过渡） |
+| P6-3 | 窗口 / 全屏 / 迷你播放器切换 | 字号随宽度变化；关闭「自动缩放」后固定 |
+| P6-4 | 连续说话观察 partial | 字幕框不上下跳动；文字不会变短再变长 |
+| P6-5 | 开启描边、切换字体、每行 1 行 | 立即生效；长句被截断而不是撑高 |
+| P6-6 | 本机翻译跟不上时 | popup 出现黄色提示建议换引擎 |
+| P6-7 | 多语言视频 + 来源 Auto | popup 提示指定语言；诊断区显示检测到的语种 |
+| P6-8 | 会话结束后查看 `packages/server/logs/sessions.jsonl` | 有一行摘要且不含任何字幕文本 |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

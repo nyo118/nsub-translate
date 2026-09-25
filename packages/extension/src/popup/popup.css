@@ -36,6 +36,7 @@ body { margin: 0; min-width: 380px; background: var(--bg); }
 /* Cards */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .card.hint { padding: 10px 14px; color: var(--muted); font-size: 12px; }
+.card.warn-card { border-color: #f1d9a3; background: #fff8e8; color: #7a5200; }
 .card.error-card { border-color: #f5c6c2; background: #fdf3f2; color: var(--error); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 
 /* Languages */

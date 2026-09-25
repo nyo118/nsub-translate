@@ -1,7 +1,9 @@
 import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
-import type { AsrAdapter, AsrMetricsSample } from './asr/types.js';
+import type { AsrAdapter } from './asr/types.js';
 import type { TranslationAdapter } from './translation/types.js';
 import { TranslationPipeline } from './translation/pipeline.js';
+import { SampleSeries } from './metrics/stats.js';
+import type { SessionSummary } from './metrics/session-log.js';
 
 export interface SessionOptions {
   sessionId: string;
@@ -34,7 +36,14 @@ export class Session {
   private readonly adapter: AsrAdapter;
   private readonly translation: TranslationAdapter;
   private readonly pipeline: TranslationPipeline;
-  private translateWindow: number[] = [];
+  private readonly translateSeries = new SampleSeries();
+  private readonly decodeSeries = new SampleSeries();
+  private readonly latencySeries = new SampleSeries();
+  private readonly errorCodes: string[] = [];
+  private translationFailures = 0;
+  private startedAtMs = 0;
+  private endedAtMs = 0;
+  private readonly translatePartials: boolean;
   private readonly send: SessionOptions['send'];
   private readonly onError: SessionOptions['onError'];
   private readonly metricsIntervalMs: number;
@@ -44,7 +53,6 @@ export class Session {
   private audioSamples = 0;
   private partials = 0;
   private finals = 0;
-  private window: AsrMetricsSample[] = [];
 
   constructor(options: SessionOptions) {
     this.sessionId = options.sessionId;
@@ -62,14 +70,15 @@ export class Session {
         this.send(m);
       },
       onError: (code, message) => this.onError(code, message),
-      onMetrics: (s) => {
-        this.translateWindow.push(s.translateMs);
-        if (this.translateWindow.length > 20) this.translateWindow.shift();
-      },
+      onMetrics: (s) => this.translateSeries.push(s.translateMs),
       translatePartials: options.translatePartials ?? false,
       contextSize: options.translation.preferredContextSize ?? 2,
-      onFailure: (info) => options.log?.warn({ sessionId: options.sessionId, provider: options.translation.provider, ...info }, 'translation attempt failed'),
+      onFailure: (info) => {
+        this.translationFailures += 1;
+        options.log?.warn({ sessionId: options.sessionId, provider: options.translation.provider, ...info }, 'translation attempt failed');
+      },
     });
+    this.translatePartials = options.translatePartials ?? false;
     this.onError = options.onError;
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;
     this.now = options.now ?? (() => Date.now());
@@ -98,13 +107,15 @@ export class Session {
       this.pipeline.onTranscript(t);
     });
     this.adapter.on('metrics', (m) => {
-      this.window.push(m);
-      if (this.window.length > 50) this.window.shift();
+      this.decodeSeries.push(m.decodeMs);
+      this.latencySeries.push(m.latencyMs);
     });
     this.adapter.on('error', (code, message) => {
       if (this._state === 'stopped') return;
+      this.errorCodes.push(code);
       this.onError(code, message);
     });
+    this.startedAtMs = Date.now();
     try {
       const { language } = await this.adapter.start({ sessionId: this.sessionId, sourceLanguage: this.sourceLanguage });
       this.asrLanguage = language;
@@ -126,19 +137,52 @@ export class Session {
   }
 
   metrics(): SessionMetricsMessage {
-    const avg = (pick: (m: AsrMetricsSample) => number) =>
-      this.window.length === 0 ? 0 : Math.round(this.window.reduce((s, m) => s + pick(m), 0) / this.window.length);
+    const WINDOW = 50;
     return {
       type: 'session.metrics',
       sessionId: this.sessionId,
       audioSeconds: Math.round((this.audioSamples / 16000) * 10) / 10,
       partials: this.partials,
       finals: this.finals,
-      avgDecodeMs: avg((m) => m.decodeMs),
-      avgLatencyMs: avg((m) => m.latencyMs),
+      avgDecodeMs: this.decodeSeries.recentMean(WINDOW),
+      avgLatencyMs: this.latencySeries.recentMean(WINDOW),
       translated: this.pipeline.translated,
-      avgTranslateMs: this.translateWindow.length === 0 ? 0 : Math.round(this.translateWindow.reduce((a, b) => a + b, 0) / this.translateWindow.length),
+      avgTranslateMs: this.translateSeries.recentMean(20),
       translationBacklog: this.pipeline.backlog,
+      asrLatencyP95Ms: this.latencySeries.recentP(95, 200),
+      translateP95Ms: this.translateSeries.recentP(95, 100),
+      translationCoverage: this.finals === 0 ? 0 : Math.min(1, Math.round((this.pipeline.translated / this.finals) * 100) / 100),
+    };
+  }
+
+  /** Text-free summary for the session log. */
+  summary(reason: string): SessionSummary {
+    const m = this.metrics();
+    const ended = this.endedAtMs || Date.now();
+    return {
+      sessionId: this.sessionId,
+      startedAt: new Date(this.startedAtMs).toISOString(),
+      endedAt: new Date(ended).toISOString(),
+      durationSec: Math.round((ended - this.startedAtMs) / 1000),
+      reason,
+      sourceLanguage: this.sourceLanguage,
+      targetLanguage: this.targetLanguage,
+      asrProvider: this.adapter.provider,
+      asrLanguage: this.asrLanguage,
+      translationProvider: this.translation.provider,
+      translatePartials: this.translatePartials,
+      audioSeconds: m.audioSeconds,
+      partials: m.partials,
+      finals: m.finals,
+      translated: m.translated,
+      translationCoverage: m.translationCoverage,
+      asrDecodeP50Ms: this.decodeSeries.p(50),
+      asrLatencyP50Ms: this.latencySeries.p(50),
+      asrLatencyP95Ms: this.latencySeries.p(95),
+      translateP50Ms: this.translateSeries.p(50),
+      translateP95Ms: this.translateSeries.p(95),
+      translationFailures: this.translationFailures,
+      errors: [...this.errorCodes],
     };
   }
 
@@ -155,6 +199,7 @@ export class Session {
       if (wasRunning) await this.adapter.stop();
     } finally {
       this._state = 'stopped';
+      this.endedAtMs = Date.now();
       this.pipeline.stop();
       await this.translation.dispose().catch(() => undefined);
     }

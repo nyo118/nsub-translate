@@ -76,10 +76,27 @@ describe('Session', () => {
     await vi.advanceTimersByTimeAsync(1000); // async so mock translations (setTimeout + promises) complete
     const metrics = sent.filter((m): m is SessionMetricsMessage => m.type === 'session.metrics');
     expect(metrics).toHaveLength(1);
-    expect(metrics[0]).toMatchObject({ sessionId: 's1', audioSeconds: 1.5, avgDecodeMs: 1, avgLatencyMs: 100, translationBacklog: 0 });
+    expect(metrics[0]).toMatchObject({ sessionId: 's1', audioSeconds: 1.5, avgDecodeMs: 1, avgLatencyMs: 100, translationBacklog: 0, asrLatencyP95Ms: 100 });
+    expect(metrics[0]!.translationCoverage).toBeGreaterThan(0);
+    expect(metrics[0]!.translationCoverage).toBeLessThanOrEqual(1);
     expect(metrics[0]!.partials + metrics[0]!.finals).toBeGreaterThan(0);
     await session.stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('produces a text-free summary with percentiles after stop', async () => {
+    const { session } = make();
+    await session.start();
+    session.pushAudio(new Int16Array(16000));
+    await vi.advanceTimersByTimeAsync(700);
+    await session.stop();
+    const s = session.summary('user');
+    expect(s).toMatchObject({ sessionId: 's1', reason: 'user', asrProvider: 'mock', translationProvider: 'mock', audioSeconds: 1, translationFailures: 0, errors: [] });
+    expect(s.finals).toBeGreaterThan(0);
+    expect(s.translated).toBeGreaterThan(0);
+    expect(s.asrLatencyP95Ms).toBe(100);
+    expect(s.translateP95Ms).toBeGreaterThanOrEqual(30);
+    expect(JSON.stringify(s)).not.toMatch(/Welcome|欢迎/);
   });
 
   it('ignores audio before start and after stop', async () => {
