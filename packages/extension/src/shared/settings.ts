@@ -90,7 +90,40 @@ export interface Settings {
   translatePartials: boolean;
   /** Auto-stop after this many hours (0 = never). Applies on next start. */
   sessionLimitHours: number;
+  /** WebSocket URL of the backend (default: local). A LAN backend needs an optional host permission. */
+  backendUrl: string;
   style: SubtitleStyle;
+}
+
+export const DEFAULT_BACKEND_URL = 'ws://127.0.0.1:8787/ws';
+
+/** Validate/normalise a backend URL: ws:// or wss://, host + optional port, path forced to /ws. */
+export function normalizeBackendUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  let text = raw.trim();
+  if (text === '') return null;
+  if (!/^[a-z]+:\/\//i.test(text)) text = `ws://${text}`;
+  try {
+    const u = new URL(text);
+    if (u.protocol !== 'ws:' && u.protocol !== 'wss:') return null;
+    if (u.hostname === '') return null;
+    return `${u.protocol}//${u.host}/ws`;
+  } catch {
+    return null;
+  }
+}
+
+/** http(s) origin pattern + ws(s) pattern the extension must hold to talk to this backend. */
+export function backendPermissionOrigins(backendUrl: string): string[] {
+  const u = new URL(backendUrl);
+  const http = u.protocol === 'wss:' ? 'https' : 'http';
+  return [`${http}://${u.host}/*`, `${u.protocol}//${u.host}/*`];
+}
+
+/** /healthz endpoint for a backend WebSocket URL. */
+export function backendHealthUrl(backendUrl: string): string {
+  const u = new URL(backendUrl);
+  return `${u.protocol === 'wss:' ? 'https' : 'http'}://${u.host}/healthz`;
 }
 
 export const SESSION_LIMIT_CHOICES: ReadonlyArray<{ hours: number; label: string }> = [
@@ -128,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   translationEngine: 'hy-mt2',
   translatePartials: false,
   sessionLimitHours: 3,
+  backendUrl: DEFAULT_BACKEND_URL,
   style: { ...DEFAULT_STYLE },
 };
 
@@ -155,6 +189,7 @@ export function normalizeSettings(raw: unknown): Settings {
     translationEngine: TRANSLATION_ENGINES.some((e) => e.code === r['translationEngine']) ? (r['translationEngine'] as TranslationEngine) : DEFAULT_SETTINGS.translationEngine,
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
     sessionLimitHours: SESSION_LIMIT_CHOICES.some((c) => c.hours === r['sessionLimitHours']) ? (r['sessionLimitHours'] as number) : DEFAULT_SETTINGS.sessionLimitHours,
+    backendUrl: normalizeBackendUrl(r['backendUrl']) ?? DEFAULT_BACKEND_URL,
     style: {
       fontSize: clamp(s['fontSize'], DEFAULT_STYLE.fontSize, STYLE_LIMITS.fontSize.min, STYLE_LIMITS.fontSize.max),
       position: clamp(s['position'], DEFAULT_STYLE.position, STYLE_LIMITS.position.min, STYLE_LIMITS.position.max),

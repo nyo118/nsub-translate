@@ -3,13 +3,16 @@ import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_SETTINGS, FONT_FAMILIES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, languageLabel, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { DEFAULT_BACKEND_URL, DEFAULT_SETTINGS, FONT_FAMILIES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, backendHealthUrl, backendPermissionOrigins, languageLabel, normalizeBackendUrl, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
 import { friendlyError } from '../shared/friendly-error.js';
-import { BACKEND_WS_URL } from '../shared/config.js';
 
-/** /healthz of the local backend (host permission: http://127.0.0.1:8787/*). */
-const HEALTHZ_URL = BACKEND_WS_URL.replace(/^ws:/, 'http:').replace(/\/ws$/, '/healthz');
 const HEALTH_POLL_MS = 3000;
+
+/** Does the extension hold the host permission needed for this backend? (localhost is in the manifest.) */
+async function hasBackendPermission(backendUrl: string): Promise<boolean> {
+  if (backendUrl === DEFAULT_BACKEND_URL) return true;
+  return chrome.permissions.contains({ origins: backendPermissionOrigins(backendUrl) });
+}
 
 interface EngineStatus {
   configured: boolean;
@@ -52,9 +55,9 @@ function modelProgressText(models: BackendHealth['models']): string | null {
 }
 type BackendState = { kind: 'unknown' } | { kind: 'down'; error: string } | { kind: 'up'; health: BackendHealth };
 
-async function fetchHealth(): Promise<BackendState> {
+async function fetchHealth(backendUrl: string): Promise<BackendState> {
   try {
-    const res = await fetch(HEALTHZ_URL, { cache: 'no-store' });
+    const res = await fetch(backendHealthUrl(backendUrl), { cache: 'no-store' });
     if (!res.ok) return { kind: 'down', error: `HTTP ${res.status}` };
     return { kind: 'up', health: (await res.json()) as BackendHealth };
   } catch (err) {
@@ -138,6 +141,13 @@ export function App() {
   const [backend, setBackend] = useState<BackendState>({ kind: 'unknown' });
   const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [backendInput, setBackendInput] = useState<string | null>(null);
+  const [backendPermitted, setBackendPermitted] = useState(true);
+  const [backendMsg, setBackendMsg] = useState<string | null>(null);
+  const backendUrlRef = useRef(DEFAULT_BACKEND_URL);
+  useEffect(() => {
+    backendUrlRef.current = settings.backendUrl;
+  }, [settings.backendUrl]);
 
   // The service worker may still be waking up when the popup opens; only
   // report it as unreachable after several consecutive failures.
@@ -158,14 +168,25 @@ export function App() {
       void refresh();
       if (ticks++ % 4 === 0) void inspectActiveTab().then(setTab);
     };
+    const pollHealth = () => {
+      const url = backendUrlRef.current;
+      void hasBackendPermission(url).then((ok) => {
+        setBackendPermitted(ok);
+        if (ok) void fetchHealth(url).then(setBackend);
+        else setBackend({ kind: 'down', error: 'permission' });
+      });
+    };
     const initial = setTimeout(() => {
       tick();
-      void settingsStore.load().then(setSettings);
-      void fetchHealth().then(setBackend);
+      void settingsStore.load().then((s) => {
+        setSettings(s);
+        backendUrlRef.current = s.backendUrl;
+        pollHealth();
+      });
     }, 0);
     const timer = setInterval(tick, POLL_MS);
     const health = setInterval(() => {
-      void fetchHealth().then(setBackend);
+      pollHealth();
       setNowMs(Date.now());
     }, HEALTH_POLL_MS);
     const unsubscribe = settingsStore.subscribe(setSettings);
@@ -230,6 +251,28 @@ export function App() {
     lastError: rawError ?? null,
     userAgent: navigator.userAgent,
   };
+  /** Apply a new backend URL: validate, request the host permission (user gesture), persist. */
+  const applyBackendUrl = async () => {
+    const normalized = normalizeBackendUrl(backendInput ?? settings.backendUrl);
+    if (normalized === null) {
+      setBackendMsg('地址格式不对，例如 192.168.50.2:8787 或 ws://192.168.50.2:8787/ws');
+      return;
+    }
+    if (normalized !== DEFAULT_BACKEND_URL) {
+      const granted = await chrome.permissions.request({ origins: backendPermissionOrigins(normalized) });
+      if (!granted) {
+        setBackendMsg('未授予访问该地址的权限，仍使用原地址。');
+        return;
+      }
+    }
+    updateSettings({ backendUrl: normalized });
+    backendUrlRef.current = normalized;
+    setBackendInput(null);
+    setBackendMsg(normalized === DEFAULT_BACKEND_URL ? '已恢复为本机后端。' : `已切换到 ${normalized}（下次开始时生效）。`);
+    setBackendPermitted(true);
+    void fetchHealth(normalized).then(setBackend);
+  };
+
   const copyDiagnostics = () => {
     void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).then(() => {
       setCopied(true);
@@ -348,8 +391,15 @@ export function App() {
       )}
       {shownError ? (
         <div className="card error-card">{shownError}</div>
+      ) : backendDown && !backendPermitted ? (
+        <div className="card error-card">扩展没有访问 {settings.backendUrl} 的权限。请在下方「诊断 → 后端地址」重新点「应用」以授予权限。</div>
       ) : backendDown ? (
-        <div className="card error-card">本地后端未运行（{HEALTHZ_URL} 无响应）。请在终端执行 npm run start:server，等待「Server listening」后再开始。</div>
+        <div className="card error-card">
+          后端未响应（{backendHealthUrl(settings.backendUrl)}）。
+          {settings.backendUrl === DEFAULT_BACKEND_URL
+            ? ' 请在终端执行 npm run start:server（或 npm run service:status），等待「Server listening」后再开始。'
+            : ' 远程后端需要以 HOST=0.0.0.0（或其局域网 IP）启动，并确认防火墙放行该端口；本机后端请把地址恢复为默认。'}
+        </div>
       ) : backendBusy ? (
         <div className="card hint warn-card">后端准备中：{modelText ?? '语音识别模型正在加载'}。就绪后可直接开始，无需重启。</div>
       ) : (
@@ -482,6 +532,28 @@ export function App() {
                 )}
               </>
             )}
+            <div className="field">
+              <label htmlFor="backend">后端地址</label>
+              <div className="inline-row">
+                <input id="backend" className="text-input" value={backendInput ?? settings.backendUrl} onChange={(e) => setBackendInput(e.target.value)} placeholder="ws://127.0.0.1:8787/ws" spellCheck={false} />
+                <button className="btn reset small" onClick={() => void applyBackendUrl()}>
+                  应用
+                </button>
+                {settings.backendUrl !== DEFAULT_BACKEND_URL && (
+                  <button
+                    className="btn reset small"
+                    onClick={() => {
+                      setBackendInput(DEFAULT_BACKEND_URL);
+                      void applyBackendUrl();
+                    }}
+                  >
+                    本机
+                  </button>
+                )}
+              </div>
+              <div className="field-hint">默认本机 127.0.0.1:8787。填局域网机器（如 192.168.50.2:8787）会请求访问该地址的权限；远程后端须以 HOST=0.0.0.0 启动，且该网络必须可信（后端无鉴权）。</div>
+              {backendMsg && <div className="field-hint">{backendMsg}</div>}
+            </div>
             {rawError && <div className="diag-raw">{rawError}</div>}
             <button className="btn reset" onClick={copyDiagnostics}>
               {copied ? '已复制' : '复制诊断信息'}

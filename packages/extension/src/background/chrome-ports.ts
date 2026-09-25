@@ -65,6 +65,7 @@ export const chromePorts: SessionPorts = {
       translatePartials: s.translatePartials,
       translationProvider: s.translationEngine,
       sessionLimitMs: Math.round(s.sessionLimitHours * 3_600_000),
+      backendUrl: s.backendUrl,
     };
   },
   async loadState() {

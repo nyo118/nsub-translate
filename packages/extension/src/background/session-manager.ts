@@ -33,7 +33,7 @@ export interface PersistedSession {
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
   /** Current user settings; read at start time so later changes never touch a running session. */
-  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number }>;
+  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number; backendUrl: string }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -173,7 +173,7 @@ export class SessionManager {
         if (!detection.playerFound) {
           throw new Error(`No ${detection.platform} video player found on this page. Open a video first.`);
         }
-        const { sessionLimitMs, ...languages } = await this.ports.loadLanguages();
+        const { sessionLimitMs, backendUrl, ...languages } = await this.ports.loadLanguages();
         await this.setState({ status: 'starting', tabId, platform: detection.platform, ...languages, sessionLimitMs });
 
         // Prefer the stream id the popup obtained in the user's click context.
@@ -181,7 +181,7 @@ export class SessionManager {
         await this.ports.ensureOffscreen();
         const result = await this.ports.startOffscreen({
           streamId,
-          backendUrl: this.backendUrl,
+          backendUrl: backendUrl || this.backendUrl,
           ...languages,
           sessionLimitMs,
         });

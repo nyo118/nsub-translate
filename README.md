@@ -42,6 +42,8 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 
 **模型自动下载**：后端启动时若发现 `models.lock.json` 里的语音识别模型缺失，会自动下载并校验（约 160 MB），期间 popup 显示下载进度；本机翻译模型（1.1 GB）只在第一次选用「本机 Hy-MT2」时下载。因此 `npm run models:download` 不是必需的，只是预先下载。`AUTO_DOWNLOAD_MODELS=0` 可关闭自动下载。
 
+**后端放到另一台机器**：在那台机器上部署后端并以 `HOST=0.0.0.0` 启动（写进它的 `packages/server/.env`），本机 popup「诊断 → 后端地址」填 `192.168.x.x:8787` 并点「应用」（Chrome 会询问访问该地址的权限）。后端无鉴权，仅限可信局域网。
+
 **从 GitHub Release 安装扩展**：下载 `nsub-translate-extension-v0.1.0.zip`，核对 `SHA256SUMS.txt`，解压后在 `chrome://extensions` Load unpacked；后端仍按上面方式从源码运行（或解压 `nsub-translate-server-v0.1.0.zip` 后 `npm ci --omit=dev && npm run models:download && node packages/server/dist/index.js`）。
 
 模型文件不进 Git（`packages/server/models/` 已 gitignore）。

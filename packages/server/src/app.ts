@@ -222,6 +222,9 @@ export async function startServer(config: ServerConfig): Promise<FastifyInstance
   app.addHook('onClose', async () => translation.dispose());
   // Listen first so the popup can show "downloading models" instead of "backend not running".
   await app.listen({ host: config.host, port: config.port });
+  if (!['127.0.0.1', 'localhost', '::1'].includes(config.host)) {
+    app.log.warn({ host: config.host }, 'backend is reachable from the network and has NO authentication — only use HOST=0.0.0.0 on a trusted LAN (see PRIVACY.md)');
+  }
   app.log.info({ asrProvider: asr.provider, translationProvider: translation.defaultProvider, translationProviders: translation.providers }, `WebSocket endpoint: ws://${config.host}:${config.port}/ws`);
   void (async () => {
     try {

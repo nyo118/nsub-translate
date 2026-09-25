@@ -53,6 +53,7 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
       translationEngine: 'hy-mt2',
       translatePartials: false,
       sessionLimitHours: 3,
+      backendUrl: 'ws://127.0.0.1:8787/ws',
       style: { fontSize: 30, position: 10, backgroundOpacity: 0.72, showSource: false, showTranslated: true, autoScale: true, outline: false, fontFamily: 'system', maxLines: 2, avoidControls: true },
     },
   });

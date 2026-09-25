@@ -7,6 +7,7 @@
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | popup 红字「本地后端未运行」 | 后端没起 / 还在加载模型 | `npm run start:server`（或 `npm run service:status`）；等 `Server listening`；模型加载 5–15 s |
+| popup「后端未响应（http://192.168.x.x:8787/healthz）」 | 远程后端只监听 `127.0.0.1`、没启动、或防火墙拦截；或扩展没有该地址的权限 | 那台机器用 `HOST=0.0.0.0 npm run start:server`（或写进它的 `.env`），`curl http://192.168.x.x:8787/healthz` 从本机能通；popup「诊断 → 后端地址」重新点「应用」授予权限。不要在源码里改 `BACKEND_WS_URL`，用 popup 设置 |
 | 终端 `Node 18.20.8 is not supported` | 终端里不是 Node 22 | `nvm use`；若 `command not found: nvm`：`source ~/.nvm/nvm.sh` 或 `export PATH="$HOME/.nvm/versions/node/v22.16.0/bin:$PATH"` |
 | `listen EADDRINUSE 127.0.0.1:8787` | 最常见：后端已作为 launchd 服务在跑（`npm run service:status` 可见），又手动执行了 `dev:server` / `start:server` | 不必手动启动；改 `.env` 用 `npm run service:restart`，改源码用 `npm run build && npm run service:restart`；要用热重载先 `npm run service:uninstall`。其他情况用 `lsof -nP -iTCP:8787 -sTCP:LISTEN` 找到占用进程 |
 | popup「后端准备中：…下载中 xx%」 | 后端正在自动下载模型 | 等待完成即可（识别模型约 160 MB，翻译模型 1.1 GB，只在首次选用本机翻译时下载） |

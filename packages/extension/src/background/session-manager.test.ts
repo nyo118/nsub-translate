@@ -17,7 +17,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const calls: string[] = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
-    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2', sessionLimitMs: 3 * 3_600_000 }),
+    loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2', sessionLimitMs: 3 * 3_600_000, backendUrl: 'ws://192.168.50.2:8787/ws' }),
     saveState: async (s) => {
       stored.value = s;
     },
@@ -87,12 +87,12 @@ describe('SessionManager', () => {
     world.ports.startOffscreen = startOffscreen;
     const m = manager(world);
     await m.start();
-    expect(startOffscreen).toHaveBeenCalledWith(expect.objectContaining({ sourceLanguage: 'ja', targetLanguage: 'zh-TW' }));
+    expect(startOffscreen).toHaveBeenCalledWith(expect.objectContaining({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', backendUrl: 'ws://192.168.50.2:8787/ws' }));
     const snap = await m.snapshot();
     expect(snap.sourceLanguage).toBe('ja');
     expect(snap.targetLanguage).toBe('zh-TW');
     // Settings changed after start must not affect the running session's snapshot.
-    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true, translationProvider: 'google', sessionLimitMs: 0 });
+    world.ports.loadLanguages = async () => ({ sourceLanguage: 'en', targetLanguage: 'ko', translatePartials: true, translationProvider: 'google', sessionLimitMs: 0, backendUrl: 'ws://127.0.0.1:8787/ws' });
     expect((await m.snapshot()).targetLanguage).toBe('zh-TW');
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AUTO_DETECT, DEFAULT_SETTINGS, DEFAULT_STYLE, SOURCE_LANGUAGES, TARGET_LANGUAGES, languageLabel, normalizeSettings } from './settings.js';
 import { SettingsStore, type StorageAreaLike } from './settings-store.js';
+import { DEFAULT_BACKEND_URL, backendHealthUrl, backendPermissionOrigins, normalizeBackendUrl } from './settings.js';
 
 function fakeArea(initial: Record<string, unknown> = {}): StorageAreaLike & { data: Record<string, unknown> } {
   const data = { ...initial };
@@ -46,6 +47,17 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ sessionLimitHours: 6 }).sessionLimitHours).toBe(6);
     expect(normalizeSettings({ sessionLimitHours: 0 }).sessionLimitHours).toBe(0);
     expect(normalizeSettings({ sessionLimitHours: 5 }).sessionLimitHours).toBe(3);
+  });
+  it('normalises backend URLs and derives permission origins / health URL', () => {
+    expect(normalizeBackendUrl('192.168.50.2:8787')).toBe('ws://192.168.50.2:8787/ws');
+    expect(normalizeBackendUrl('ws://192.168.50.2:8787/ws')).toBe('ws://192.168.50.2:8787/ws');
+    expect(normalizeBackendUrl('wss://sub.example.com')).toBe('wss://sub.example.com/ws');
+    expect(normalizeBackendUrl('http://x:1')).toBeNull();
+    expect(normalizeBackendUrl('')).toBeNull();
+    expect(normalizeSettings({ backendUrl: 'nonsense://' }).backendUrl).toBe(DEFAULT_BACKEND_URL);
+    expect(backendPermissionOrigins('ws://192.168.50.2:8787/ws')).toEqual(['http://192.168.50.2:8787/*', 'ws://192.168.50.2:8787/*']);
+    expect(backendHealthUrl('ws://192.168.50.2:8787/ws')).toBe('http://192.168.50.2:8787/healthz');
+    expect(backendHealthUrl('wss://h.example/ws')).toBe('https://h.example/healthz');
   });
   it('normalises translatePartials to a boolean', () => {
     expect(normalizeSettings({ translatePartials: true }).translatePartials).toBe(true);
