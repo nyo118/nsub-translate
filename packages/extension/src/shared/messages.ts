@@ -1,4 +1,4 @@
-import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from './platform.js';
 
 /**
@@ -29,6 +29,9 @@ export interface SessionSnapshot {
   /** Translator in use for the active session. */
   translation?: TranslationInfo;
   translatePartials?: boolean;
+  /** Multi-voice options the active session was started with. */
+  denoise?: boolean;
+  diarize?: boolean;
   /** Latest latency statistics from the backend. */
   metrics?: SessionMetricsMessage;
   /** Backend connection state while active: connected, or reconnecting after a drop. */
@@ -83,6 +86,9 @@ export interface OffscreenStartRequest {
   targetLanguage: string;
   translatePartials: boolean;
   translationProvider: string;
+  denoise: boolean;
+  diarize: boolean;
+  overlap: OverlapMode;
   /** Auto-stop after this long (0 = never). Enforced by the offscreen document, which outlives the worker. */
   sessionLimitMs: number;
 }

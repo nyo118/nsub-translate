@@ -15,8 +15,16 @@ export interface ModelFileSpec {
   /** Name of an entry in `archives` that contains this file. */
   archive?: string;
   sizeBytes?: number;
-  group: 'asr' | 'translation';
+  group: ModelGroupName;
 }
+
+/**
+ * asr: VAD + SenseVoice (required). translation: local Hy-MT2 (on demand).
+ * enhance: GTCRN speech denoiser (on demand, `options.denoise`).
+ * diarization: pyannote segmentation + 3D-Speaker embedding (on demand, `options.diarize`).
+ */
+export const MODEL_GROUPS = ['asr', 'translation', 'enhance', 'diarization'] as const;
+export type ModelGroupName = (typeof MODEL_GROUPS)[number];
 export interface ModelLock {
   version: number;
   archives: Record<string, ModelArchiveSpec>;

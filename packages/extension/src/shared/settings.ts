@@ -5,6 +5,8 @@
  * the shape.
  */
 
+import { OVERLAP_MODES, type OverlapMode } from '@lst/protocol';
+
 export const SETTINGS_VERSION = 1 as const;
 export const SETTINGS_STORAGE_KEY = 'settings';
 
@@ -90,12 +92,31 @@ export interface Settings {
   translatePartials: boolean;
   /** Auto-stop after this many hours (0 = never). Applies on next start. */
   sessionLimitHours: number;
+  /** Multi-voice handling (0.2.0), all off by default; applies on next start. */
+  denoise: boolean;
+  diarize: boolean;
+  overlap: OverlapMode;
   /** WebSocket URL of the backend (default: local). A LAN backend needs an optional host permission. */
   backendUrl: string;
   style: SubtitleStyle;
 }
 
 export const DEFAULT_BACKEND_URL = 'ws://127.0.0.1:8787/ws';
+
+export const OVERLAP_CHOICES: ReadonlyArray<{ code: OverlapMode; label: string }> = [
+  { code: 'mark', label: '标记「多人同时说话」' },
+  { code: 'skip', label: '跳过不显示' },
+  { code: 'recognize', label: '照常识别（文字可能混杂）' },
+];
+
+/** True for a backend on this machine (denoise/diarize cost CPU that a laptop may not have). */
+export function isLocalBackend(backendUrl: string): boolean {
+  try {
+    return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(backendUrl).hostname);
+  } catch {
+    return true;
+  }
+}
 
 /** Validate/normalise a backend URL: ws:// or wss://, host + optional port, path forced to /ws. */
 export function normalizeBackendUrl(raw: unknown): string | null {
@@ -161,6 +182,9 @@ export const DEFAULT_SETTINGS: Settings = {
   translationEngine: 'hy-mt2',
   translatePartials: false,
   sessionLimitHours: 3,
+  denoise: false,
+  diarize: false,
+  overlap: 'mark',
   backendUrl: DEFAULT_BACKEND_URL,
   style: { ...DEFAULT_STYLE },
 };
@@ -189,6 +213,9 @@ export function normalizeSettings(raw: unknown): Settings {
     translationEngine: TRANSLATION_ENGINES.some((e) => e.code === r['translationEngine']) ? (r['translationEngine'] as TranslationEngine) : DEFAULT_SETTINGS.translationEngine,
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
     sessionLimitHours: SESSION_LIMIT_CHOICES.some((c) => c.hours === r['sessionLimitHours']) ? (r['sessionLimitHours'] as number) : DEFAULT_SETTINGS.sessionLimitHours,
+    denoise: bool(r['denoise'], DEFAULT_SETTINGS.denoise),
+    diarize: bool(r['diarize'], DEFAULT_SETTINGS.diarize),
+    overlap: OVERLAP_MODES.includes(r['overlap'] as OverlapMode) ? (r['overlap'] as OverlapMode) : DEFAULT_SETTINGS.overlap,
     backendUrl: normalizeBackendUrl(r['backendUrl']) ?? DEFAULT_BACKEND_URL,
     style: {
       fontSize: clamp(s['fontSize'], DEFAULT_STYLE.fontSize, STYLE_LIMITS.fontSize.min, STYLE_LIMITS.fontSize.max),

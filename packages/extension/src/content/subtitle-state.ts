@@ -8,12 +8,18 @@ export interface SubtitleSegment {
   endMs?: number;
   sourceText: string;
   translatedText?: string;
+  speaker?: string;
+  overlap?: boolean;
 }
 
 export interface SubtitleLine {
   sourceText: string;
   translatedText: string | undefined;
   status: 'partial' | 'final';
+  /** Speaker label ("A", "B", …) when the backend diarizes. */
+  speaker?: string;
+  /** Several people spoke at once (sourceText may be a placeholder notice). */
+  overlap?: boolean;
 }
 
 /**
@@ -61,6 +67,8 @@ export class SubtitleStore {
     };
     if (t.endMs !== undefined) segment.endMs = t.endMs;
     if (t.translatedText !== undefined) segment.translatedText = t.translatedText;
+    if (t.speaker !== undefined) segment.speaker = t.speaker;
+    if (t.overlap !== undefined) segment.overlap = t.overlap;
     this.segments.set(t.segmentId, segment);
     return true;
   }
@@ -87,7 +95,10 @@ export class SubtitleStore {
   }
 
   private toLine(s: SubtitleSegment): SubtitleLine {
-    return { sourceText: s.sourceText, translatedText: s.translatedText, status: s.status };
+    const line: SubtitleLine = { sourceText: s.sourceText, translatedText: s.translatedText, status: s.status };
+    if (s.speaker !== undefined) line.speaker = s.speaker;
+    if (s.overlap !== undefined) line.overlap = s.overlap;
+    return line;
   }
 
   get size(): number {

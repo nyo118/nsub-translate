@@ -1,9 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { Segmenter, type Recognizer, type VadSegment, type VoiceActivityDetector } from './segmenter.js';
+import { OVERLAP_PLACEHOLDER, type OverlapMode } from '@lst/protocol';
+import { Segmenter, type Recognizer, type SegmentSplitter, type SplitPiece, type VadSegment, type VoiceActivityDetector } from './segmenter.js';
 import { normalizeDetectedLanguage, type SenseVoiceLanguage } from './languages.js';
 import type { WorkerInbound, WorkerOutbound } from './sherpa-messages.js';
+import { SpeakerRegistry, splitBySpeaker, type DiarizationSegment } from './speaker-split.js';
 
 /**
  * Worker thread that owns the native sherpa-onnx objects. Recognition is
@@ -14,6 +16,10 @@ import type { WorkerInbound, WorkerOutbound } from './sherpa-messages.js';
 interface WorkerInit {
   modelDir: string;
   vadModel: string;
+  /** Optional models (may not exist on disk until the feature is first used). */
+  denoiserModel: string;
+  segmentationModel: string;
+  embeddingModel: string;
   numThreads: number;
 }
 
@@ -27,6 +33,11 @@ const BACKLOG_RESUME_MS = 250;
 
 const SAMPLE_RATE = 16000;
 const recognizers = new Map<SenseVoiceLanguage, Recognizer>();
+
+/** Pieces shorter than this get no embedding of their own (too little voice to be reliable). */
+const MIN_EMBED_SAMPLES = Math.round(0.5 * SAMPLE_RATE);
+/** Segments shorter than this are not worth diarizing. */
+const MIN_DIARIZE_SAMPLES = Math.round(1.0 * SAMPLE_RATE);
 
 function post(message: WorkerOutbound): void {
   parentPort?.postMessage(message);
@@ -90,7 +101,97 @@ function createVad(): VoiceActivityDetector {
   };
 }
 
-let active: { sessionId: string; segmenter: Segmenter; partialsPaused: boolean } | null = null;
+// ---------------------------------------------------------------------------
+// Optional front-ends (0.2.0): speech denoiser, speaker diarization
+// ---------------------------------------------------------------------------
+
+interface Denoiser {
+  run(samples: Float32Array): Float32Array;
+  flush(): Float32Array;
+}
+
+let denoiser: Denoiser | null = null;
+
+/** GTCRN streaming denoiser: 16 kHz in, 16 kHz out, a few ms of internal buffering. */
+function getDenoiser(): Denoiser {
+  if (denoiser !== null) return denoiser;
+  const native = new sherpa.OnlineSpeechDenoiser({ model: { gtcrn: { model: init.denoiserModel }, numThreads: 1, provider: 'cpu', debug: 0 } });
+  denoiser = {
+    run: (samples) => (native.run({ samples, sampleRate: SAMPLE_RATE }) as { samples: Float32Array }).samples,
+    flush: () => (native.flush() as { samples: Float32Array }).samples,
+  };
+  return denoiser;
+}
+
+interface Diarizer {
+  process(samples: Float32Array): DiarizationSegment[];
+  embed(samples: Float32Array): Float32Array;
+}
+
+let diarizer: Diarizer | null = null;
+
+/** pyannote segmentation 3.0 (int8) + 3D-Speaker ERes2Net embeddings; both ~RTF 0.05 on a laptop CPU. */
+function getDiarizer(): Diarizer {
+  if (diarizer !== null) return diarizer;
+  const segmentation = new sherpa.OfflineSpeakerDiarization({
+    segmentation: { pyannote: { model: init.segmentationModel }, numThreads: 1, provider: 'cpu', debug: 0 },
+    embedding: { model: init.embeddingModel, numThreads: 1, provider: 'cpu', debug: 0 },
+    clustering: { numClusters: -1, threshold: 0.5 },
+    minDurationOn: 0.2,
+    minDurationOff: 0.5,
+  });
+  const extractor = new sherpa.SpeakerEmbeddingExtractor({ model: init.embeddingModel, numThreads: 1, provider: 'cpu', debug: 0 });
+  diarizer = {
+    process: (samples) => segmentation.process(samples) as DiarizationSegment[],
+    embed: (samples) => {
+      const stream = extractor.createStream();
+      stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
+      return extractor.compute(stream) as Float32Array;
+    },
+  };
+  return diarizer;
+}
+
+/**
+ * Segment splitter for one session: diarize the final's audio, cut it by
+ * speaker, label the pieces with session-stable letters and apply the
+ * overlap policy. Never throws — on any failure the segment is decoded whole.
+ */
+function createSpeakerSplitter(overlap: OverlapMode): SegmentSplitter {
+  const d = getDiarizer();
+  const registry = new SpeakerRegistry();
+  return (samples) => {
+    if (samples.length < MIN_DIARIZE_SAMPLES) return null;
+    try {
+      const raw = splitBySpeaker(d.process(samples), samples.length, { sampleRate: SAMPLE_RATE });
+      const labels = new Map<number, string>(); // diarizer-local id → session label, per segment
+      const pieces: SplitPiece[] = [];
+      for (const p of raw) {
+        if (p.overlap) {
+          if (overlap === 'skip') continue;
+          const piece: SplitPiece = { offset: p.offset, length: p.length, overlap: true };
+          if (overlap === 'mark') piece.text = OVERLAP_PLACEHOLDER;
+          pieces.push(piece);
+          continue;
+        }
+        const piece: SplitPiece = { offset: p.offset, length: p.length };
+        let label = labels.get(p.localSpeaker);
+        if (label === undefined && p.length >= MIN_EMBED_SAMPLES) {
+          label = registry.label(d.embed(samples.subarray(p.offset, p.offset + p.length)));
+          if (p.localSpeaker >= 0) labels.set(p.localSpeaker, label);
+        }
+        if (label !== undefined) piece.speaker = label;
+        pieces.push(piece);
+      }
+      return pieces;
+    } catch (err) {
+      console.warn('[asr] speaker split failed; decoding segment whole', err instanceof Error ? err.message : err);
+      return null;
+    }
+  };
+}
+
+let active: { sessionId: string; segmenter: Segmenter; partialsPaused: boolean; denoise: boolean } | null = null;
 
 function handle(message: WorkerInbound): void {
   switch (message.t) {
@@ -104,15 +205,35 @@ function handle(message: WorkerInbound): void {
         return;
       }
       const recognizer = getRecognizer(message.language);
+      // Optional front-ends degrade gracefully: a model that fails to load
+      // disables the feature (reported in `started`) instead of the session.
+      let denoise = false;
+      if (message.denoise) {
+        try {
+          getDenoiser();
+          denoise = true;
+        } catch (err) {
+          console.warn('[asr] denoiser unavailable, continuing without it:', err instanceof Error ? err.message : err);
+        }
+      }
+      let splitter: SegmentSplitter | undefined;
+      if (message.diarize) {
+        try {
+          splitter = createSpeakerSplitter(message.overlap);
+        } catch (err) {
+          console.warn('[asr] speaker diarization unavailable, continuing without it:', err instanceof Error ? err.message : err);
+        }
+      }
       const segmenter = new Segmenter({
         sampleRate: SAMPLE_RATE,
         vad: createVad(),
         recognizer,
         onTranscript: (transcript) => post({ t: 'transcript', sessionId: message.sessionId, transcript }),
         onMetrics: (sample) => post({ t: 'metrics', sessionId: message.sessionId, sample }),
+        ...(splitter === undefined ? {} : { splitter }),
       });
-      active = { sessionId: message.sessionId, segmenter, partialsPaused: false };
-      post({ t: 'started', sessionId: message.sessionId, language: message.language });
+      active = { sessionId: message.sessionId, segmenter, partialsPaused: false, denoise };
+      post({ t: 'started', sessionId: message.sessionId, language: message.language, denoise, diarize: splitter !== undefined });
       return;
     }
     case 'audio': {
@@ -129,7 +250,9 @@ function handle(message: WorkerInbound): void {
       const pcm = new Int16Array(message.pcm);
       const f32 = new Float32Array(pcm.length);
       for (let i = 0; i < pcm.length; i++) f32[i] = (pcm[i] ?? 0) / 32768;
-      active.segmenter.push(f32);
+      // The denoiser buffers a few frames internally (< 20 ms), so the sample
+      // clock drifts by at most that much; nothing is dropped.
+      active.segmenter.push(active.denoise ? getDenoiser().run(f32) : f32);
       return;
     }
     case 'stop': {
@@ -137,8 +260,9 @@ function handle(message: WorkerInbound): void {
         post({ t: 'stopped', sessionId: message.sessionId });
         return;
       }
-      const { segmenter, sessionId } = active;
+      const { segmenter, sessionId, denoise } = active;
       active = null;
+      if (denoise) segmenter.push(getDenoiser().flush());
       segmenter.flush();
       post({ t: 'stopped', sessionId });
       return;

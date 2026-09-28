@@ -1,12 +1,14 @@
 import {
   AUDIO_FORMAT,
   MAX_AUDIO_FRAME_BYTES,
+  OVERLAP_MODES,
   PROTOCOL_VERSION,
   type AsrInfo,
   type AudioFormat,
   type ClientMessage,
   type ServerMessage,
   type SessionMetricsMessage,
+  type OverlapMode,
   type SessionOptions,
   type TranscriptMessage,
   type TranslationInfo,
@@ -118,6 +120,15 @@ function validateOptions(value: unknown): ParseResult<SessionOptions> {
     }
     options.translationProvider = value['translationProvider'];
   }
+  for (const key of ['denoise', 'diarize'] as const) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== 'boolean') return { ok: false, error: `options.${key} must be a boolean` };
+    options[key] = value[key];
+  }
+  if (value['overlap'] !== undefined) {
+    if (!OVERLAP_MODES.includes(value['overlap'] as OverlapMode)) return { ok: false, error: `options.overlap must be one of ${OVERLAP_MODES.join('|')}` };
+    options.overlap = value['overlap'] as OverlapMode;
+  }
   return { ok: true, message: options };
 }
 
@@ -132,7 +143,13 @@ function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
   if (!isRecord(value)) return { ok: false, error: 'asr info is required' };
   if (!isNonEmptyString(value['provider'])) return { ok: false, error: 'asr.provider is required' };
   if (!isNonEmptyString(value['language'])) return { ok: false, error: 'asr.language is required' };
-  return { ok: true, message: { provider: value['provider'], language: value['language'] } };
+  const info: AsrInfo = { provider: value['provider'], language: value['language'] };
+  for (const key of ['denoise', 'diarize'] as const) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== 'boolean') return { ok: false, error: `asr.${key} must be a boolean` };
+    info[key] = value[key];
+  }
+  return { ok: true, message: info };
 }
 
 function validateMetrics(value: UnknownRecord): ParseResult<SessionMetricsMessage> {
@@ -173,6 +190,8 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
     return { ok: false, error: 'translatedText must be a string' };
   }
   if (value['language'] !== undefined && !isNonEmptyString(value['language'])) return { ok: false, error: 'language must be a non-empty string' };
+  if (value['speaker'] !== undefined && !isNonEmptyString(value['speaker'])) return { ok: false, error: 'speaker must be a non-empty string' };
+  if (value['overlap'] !== undefined && typeof value['overlap'] !== 'boolean') return { ok: false, error: 'overlap must be a boolean' };
   const message: TranscriptMessage = {
     type: 'transcript',
     sessionId: value['sessionId'],
@@ -185,6 +204,8 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
   if (value['endMs'] !== undefined) message.endMs = value['endMs'];
   if (value['translatedText'] !== undefined) message.translatedText = value['translatedText'];
   if (value['language'] !== undefined) message.language = value['language'];
+  if (value['speaker'] !== undefined) message.speaker = value['speaker'];
+  if (value['overlap'] !== undefined) message.overlap = value['overlap'];
   return { ok: true, message };
 }
 

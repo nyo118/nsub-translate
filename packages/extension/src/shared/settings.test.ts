@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AUTO_DETECT, DEFAULT_SETTINGS, DEFAULT_STYLE, SOURCE_LANGUAGES, TARGET_LANGUAGES, languageLabel, normalizeSettings } from './settings.js';
 import { SettingsStore, type StorageAreaLike } from './settings-store.js';
-import { DEFAULT_BACKEND_URL, backendHealthUrl, backendPermissionOrigins, normalizeBackendUrl } from './settings.js';
+import { DEFAULT_BACKEND_URL, backendHealthUrl, backendPermissionOrigins, isLocalBackend, normalizeBackendUrl } from './settings.js';
 
 function fakeArea(initial: Record<string, unknown> = {}): StorageAreaLike & { data: Record<string, unknown> } {
   const data = { ...initial };
@@ -106,5 +106,19 @@ describe('SettingsStore', () => {
   it('normalizes corrupt stored data on load', async () => {
     const store = new SettingsStore(fakeArea({ settings: { version: 0, targetLanguage: 'bogus', style: { fontSize: 'big' } } }));
     expect(await store.load()).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+describe('multi-voice settings (0.2.0)', () => {
+  it('defaults every voice option to off / mark and validates stored values', () => {
+    expect(normalizeSettings({})).toMatchObject({ denoise: false, diarize: false, overlap: 'mark' });
+    expect(normalizeSettings({ denoise: true, diarize: true, overlap: 'skip' })).toMatchObject({ denoise: true, diarize: true, overlap: 'skip' });
+    expect(normalizeSettings({ denoise: 'yes', overlap: 'merge' })).toMatchObject({ denoise: false, overlap: 'mark' });
+  });
+  it('knows which backends are local', () => {
+    expect(isLocalBackend('ws://127.0.0.1:8787/ws')).toBe(true);
+    expect(isLocalBackend('ws://localhost:8787/ws')).toBe(true);
+    expect(isLocalBackend('ws://100.95.191.84:8787/ws')).toBe(false);
+    expect(isLocalBackend('garbage')).toBe(true);
   });
 });

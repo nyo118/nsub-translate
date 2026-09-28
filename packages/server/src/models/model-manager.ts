@@ -1,7 +1,9 @@
 import { ensureModels, missingFiles, type DownloadProgress } from './downloader.js';
-import { filesInGroup, type ModelFileSpec, type ModelLock } from './model-lock.js';
+import { MODEL_GROUPS, filesInGroup, type ModelGroupName, type ModelLock } from './model-lock.js';
 
-export type ModelGroup = ModelFileSpec['group'];
+export type ModelGroup = ModelGroupName;
+
+const GROUP_LABEL: Record<ModelGroup, string> = { asr: '语音识别模型', translation: '翻译模型', enhance: '降噪模型', diarization: '说话人分离模型' };
 
 export interface ModelGroupState {
   status: 'unknown' | 'missing' | 'downloading' | 'ready' | 'error';
@@ -19,7 +21,7 @@ export interface ModelGroupState {
  * state snapshot for /healthz so the popup can show download progress.
  */
 export class ModelManager {
-  private readonly state: Record<ModelGroup, ModelGroupState> = { asr: { status: 'unknown' }, translation: { status: 'unknown' } };
+  private readonly state = Object.fromEntries(MODEL_GROUPS.map((g) => [g, { status: 'unknown' }])) as Record<ModelGroup, ModelGroupState>;
   private readonly inflight = new Map<ModelGroup, Promise<void>>();
 
   constructor(
@@ -33,7 +35,7 @@ export class ModelManager {
   ) {}
 
   snapshot(): Record<ModelGroup, ModelGroupState> {
-    return { asr: { ...this.state.asr }, translation: { ...this.state.translation } };
+    return Object.fromEntries(MODEL_GROUPS.map((g) => [g, { ...this.state[g] }])) as Record<ModelGroup, ModelGroupState>;
   }
 
   isReady(group: ModelGroup): boolean {
@@ -43,7 +45,7 @@ export class ModelManager {
   /** Human-readable reason a group is not ready (for session.error). */
   notReadyMessage(group: ModelGroup): string {
     const s = this.state[group];
-    const what = group === 'asr' ? '语音识别模型' : '翻译模型';
+    const what = GROUP_LABEL[group];
     switch (s.status) {
       case 'downloading': {
         const pct = s.progress === undefined ? '' : ` ${Math.round(s.progress * 100)}%`;

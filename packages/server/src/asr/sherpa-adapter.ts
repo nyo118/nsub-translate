@@ -12,10 +12,16 @@ export interface SherpaConfig {
   modelsDir: string;
   numThreads: number;
   log: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
+  /** Fetch the optional model groups on demand (ModelManager); absent = files must already exist. */
+  ensureModels?: (group: 'enhance' | 'diarization') => Promise<void>;
 }
 
 export const SENSEVOICE_MODEL_DIR = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17';
 export const VAD_MODEL_FILE = 'silero_vad.onnx';
+/** Optional models (0.2.0): speech denoiser, speaker segmentation, speaker embedding. */
+export const DENOISER_MODEL_FILE = 'gtcrn_simple.onnx';
+export const SEGMENTATION_MODEL_FILE = 'sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx';
+export const EMBEDDING_MODEL_FILE = '3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx';
 
 const START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -92,6 +98,9 @@ export class SherpaWorkerHost {
       workerData: {
         modelDir: path.join(this.config.modelsDir, SENSEVOICE_MODEL_DIR),
         vadModel: path.join(this.config.modelsDir, VAD_MODEL_FILE),
+        denoiserModel: path.join(this.config.modelsDir, DENOISER_MODEL_FILE),
+        segmentationModel: path.join(this.config.modelsDir, SEGMENTATION_MODEL_FILE),
+        embeddingModel: path.join(this.config.modelsDir, EMBEDDING_MODEL_FILE),
         numThreads: this.config.numThreads,
       },
     });
@@ -128,7 +137,10 @@ class SherpaAsrAdapter implements AsrAdapter {
   private readonly handlers: { [K in keyof AsrAdapterEvents]: AsrAdapterEvents[K][] } = { transcript: [], metrics: [], error: [] };
   private stopped = false;
 
-  constructor(private readonly host: SherpaWorkerHost) {}
+  constructor(
+    private readonly host: SherpaWorkerHost,
+    private readonly ensureModels: SherpaConfig['ensureModels'],
+  ) {}
 
   on<K extends keyof AsrAdapterEvents>(event: K, listener: AsrAdapterEvents[K]): void {
     this.handlers[event].push(listener);
@@ -138,9 +150,14 @@ class SherpaAsrAdapter implements AsrAdapter {
     for (const h of this.handlers[event]) (h as (...a: Parameters<AsrAdapterEvents[K]>) => void)(...args);
   }
 
-  start(options: AsrStartOptions): Promise<{ language: string }> {
+  async start(options: AsrStartOptions): Promise<{ language: string; denoise: boolean; diarize: boolean }> {
     const language = toSenseVoiceLanguage(options.sourceLanguage);
     this.sessionId = options.sessionId;
+    const denoise = options.denoise === true;
+    const diarize = options.diarize === true;
+    // Optional models are fetched on first use so nobody downloads what they never switch on.
+    if (denoise) await this.ensureModels?.('enhance');
+    if (diarize) await this.ensureModels?.('diarization');
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.unsubscribe?.();
@@ -153,7 +170,7 @@ class SherpaAsrAdapter implements AsrAdapter {
           case 'started':
             started = true;
             clearTimeout(timer);
-            resolve({ language: m.language });
+            resolve({ language: m.language, denoise: m.denoise, diarize: m.diarize });
             return;
           case 'transcript':
             this.emit('transcript', m.transcript);
@@ -170,7 +187,7 @@ class SherpaAsrAdapter implements AsrAdapter {
             return;
         }
       });
-      this.host.send({ t: 'start', sessionId: options.sessionId, language });
+      this.host.send({ t: 'start', sessionId: options.sessionId, language, denoise, diarize, overlap: options.overlap ?? 'mark' });
     });
   }
 
@@ -215,6 +232,6 @@ export function createSherpaFactory(config: SherpaConfig): AsrAdapterFactory {
       await host.preload();
       config.log.info({ ms: Date.now() - t0, modelsDir: config.modelsDir }, 'SenseVoice model loaded');
     },
-    create: () => new SherpaAsrAdapter(host),
+    create: () => new SherpaAsrAdapter(host, config.ensureModels),
   };
 }

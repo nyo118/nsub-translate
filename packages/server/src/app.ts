@@ -144,10 +144,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
 type BootLog = { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
 
-export function createAsrFactory(config: ServerConfig, log: BootLog): AsrAdapterFactory {
+export function createAsrFactory(config: ServerConfig, log: BootLog, models?: ModelManager): AsrAdapterFactory {
   return config.asrProvider === 'mock'
     ? createMockFactory(config.mockTickMs)
-    : createSherpaFactory({ modelsDir: config.modelsDir, numThreads: config.asrThreads, log });
+    : createSherpaFactory({ modelsDir: config.modelsDir, numThreads: config.asrThreads, log, ...(models === undefined ? {} : { ensureModels: (group) => models.ensure(group) }) });
 }
 
 /**
@@ -198,7 +198,7 @@ export async function startServer(config: ServerConfig): Promise<FastifyInstance
   const bootLog: BootLog = { info: (o, m) => console.info(m, o), warn: (o, m) => console.warn(m, o) };
   bootLog.info(describeConfiguredEngines(config), 'configured engines');
   const models = new ModelManager({ modelsDir: config.modelsDir, lock: loadModelLock(), autoDownload: config.autoDownloadModels, log: bootLog });
-  const asr = createAsrFactory(config, bootLog);
+  const asr = createAsrFactory(config, bootLog, models);
   const translation = createTranslationRegistry(config, bootLog, models);
   let asrReady = config.asrProvider === 'mock';
   let asrError: string | null = null;

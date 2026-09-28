@@ -36,6 +36,23 @@ export interface Recognizer {
   decode(samples: Float32Array): RecognizerResult;
 }
 
+/** One part of a finalised segment after speaker splitting (see speaker-split.ts). */
+export interface SplitPiece {
+  /** Sample offset inside the segment audio. */
+  offset: number;
+  length: number;
+  speaker?: string;
+  overlap?: boolean;
+  /** Pre-set text (e.g. the overlap placeholder): the piece is emitted as-is instead of decoded. */
+  text?: string;
+}
+
+/**
+ * Splits a final segment's audio into pieces (by speaker / overlap). Return
+ * null to decode the segment whole. Called only for finals, never partials.
+ */
+export type SegmentSplitter = (samples: Float32Array) => SplitPiece[] | null;
+
 export interface SegmenterOptions {
   sampleRate: number;
   vad: VoiceActivityDetector;
@@ -57,11 +74,12 @@ export interface SegmenterOptions {
    */
   softSegmentMs?: number;
   softSplitWindowMs?: number;
+  splitter?: SegmentSplitter;
   now?: () => number;
 }
 
 export class Segmenter {
-  private readonly o: Required<Omit<SegmenterOptions, 'onMetrics'>> & { onMetrics: (m: AsrMetricsSample) => void };
+  private readonly o: Required<Omit<SegmenterOptions, 'onMetrics' | 'splitter'>> & { onMetrics: (m: AsrMetricsSample) => void; splitter: SegmentSplitter | null };
   private pending = new Float32Array(0);
   private processed = 0; // samples fed to the VAD so far
   private readonly preRoll: Float32Array;
@@ -90,6 +108,7 @@ export class Segmenter {
       softSplitWindowMs: 1500,
       now: () => Date.now(),
       onMetrics: () => {},
+      splitter: null,
       ...options,
     };
     this.preRoll = new Float32Array(Math.round((this.o.preRollMs / 1000) * this.o.sampleRate));
@@ -293,19 +312,47 @@ export class Segmenter {
 
   private finalizeCurrent(samples: Float32Array, startSample: number): void {
     const segmentId = this.segmentId;
-    const startMs = this.toMs(startSample);
-    const endMs = this.toMs(startSample + samples.length);
+    const revision = this.revision;
     this.inSpeech = false;
     this.current = [];
     this.currentLen = 0;
     if (samples.length === 0) return;
-    const t0 = this.o.now();
-    const result = this.o.recognizer.decode(samples);
-    const decodeMs = this.o.now() - t0;
-    const text = result.text.trim();
+    const pieces = this.o.splitter?.(samples) ?? null;
+    if (pieces === null || pieces.length === 0) {
+      this.emitFinal(segmentId, revision, samples, startSample);
+      return;
+    }
+    // The first piece keeps the segment id (it supersedes the partials); later
+    // pieces are new segments in order. The whole segment shares one revision
+    // counter so every piece outranks the last partial.
+    pieces.forEach((piece, index) => {
+      const id = index === 0 ? segmentId : `${segmentId}-${index + 1}`;
+      const audio = samples.subarray(piece.offset, piece.offset + piece.length);
+      this.emitFinal(id, revision, audio, startSample + piece.offset, piece);
+    });
+  }
+
+  private emitFinal(segmentId: string, revision: number, samples: Float32Array, startSample: number, piece?: SplitPiece): void {
+    if (samples.length === 0) return;
+    const startMs = this.toMs(startSample);
+    const endMs = this.toMs(startSample + samples.length);
+    let text: string;
+    let language: string | undefined;
+    let decodeMs = 0;
+    if (piece?.text !== undefined) {
+      text = piece.text;
+    } else {
+      const t0 = this.o.now();
+      const result = this.o.recognizer.decode(samples);
+      decodeMs = this.o.now() - t0;
+      text = result.text.trim();
+      language = result.language;
+    }
     if (text.length === 0) return;
-    const transcript: AsrTranscript = { segmentId, revision: this.revision++, status: 'final', startMs, endMs, text };
-    if (result.language !== undefined) transcript.language = result.language;
+    const transcript: AsrTranscript = { segmentId, revision, status: 'final', startMs, endMs, text };
+    if (language !== undefined) transcript.language = language;
+    if (piece?.speaker !== undefined) transcript.speaker = piece.speaker;
+    if (piece?.overlap) transcript.overlap = true;
     this.o.onTranscript(transcript);
     this.o.onMetrics({ decodeMs, latencyMs: this.o.now() - this.lastAudioAt, status: 'final' });
   }

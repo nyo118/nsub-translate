@@ -2,7 +2,7 @@
 // Downloads every model file listed in models.lock.json into packages/server/models and verifies
 // SHA-256. Idempotent: present + matching files are skipped. The backend does the same
 // automatically at startup (AUTO_DOWNLOAD_MODELS=1, default); this script is for pre-fetching.
-//   node scripts/download-models.mjs [--group asr|translation]
+//   node scripts/download-models.mjs [--group asr|translation|enhance|diarization]
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';

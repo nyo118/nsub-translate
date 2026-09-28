@@ -32,6 +32,13 @@ describe('validateClientMessage', () => {
     expect(validateClientMessage({ ...start, options: { translationProvider: '' } }).ok).toBe(false);
     expect(validateClientMessage({ ...start, options: { translatePartials: 'yes' } }).ok).toBe(false);
   });
+  it('accepts the v6 multi-voice options and rejects bad values', () => {
+    const r = validateClientMessage({ ...start, options: { denoise: true, diarize: true, overlap: 'skip' } });
+    expect(r.ok && r.message.type === 'session.start' && r.message.options).toEqual({ translatePartials: false, denoise: true, diarize: true, overlap: 'skip' });
+    expect(validateClientMessage({ ...start, options: { denoise: 1 } }).ok).toBe(false);
+    expect(validateClientMessage({ ...start, options: { diarize: 'on' } }).ok).toBe(false);
+    expect(validateClientMessage({ ...start, options: { overlap: 'merge' } }).ok).toBe(false);
+  });
   it('requires the v2 audio format', () => {
     const { audio: _audio, ...noAudio } = start;
     expect(validateClientMessage(noAudio).ok).toBe(false);
@@ -72,7 +79,7 @@ describe('validateServerMessage', () => {
   };
   it('accepts a minimal transcript and preserves optional fields', () => {
     expect(validateServerMessage(transcript)).toEqual({ ok: true, message: transcript });
-    const full = { ...transcript, status: 'final', endMs: 1200, translatedText: '你好', language: 'en' };
+    const full = { ...transcript, status: 'final', endMs: 1200, translatedText: '你好', language: 'en', speaker: 'A', overlap: false };
     expect(validateServerMessage(full)).toEqual({ ok: true, message: full });
   });
   it('rejects malformed transcripts', () => {
@@ -80,6 +87,8 @@ describe('validateServerMessage', () => {
     expect(validateServerMessage({ ...transcript, status: 'done' }).ok).toBe(false);
     expect(validateServerMessage({ ...transcript, sourceText: 5 }).ok).toBe(false);
     expect(validateServerMessage({ ...transcript, segmentId: '' }).ok).toBe(false);
+    expect(validateServerMessage({ ...transcript, speaker: '' }).ok).toBe(false);
+    expect(validateServerMessage({ ...transcript, overlap: 'yes' }).ok).toBe(false);
   });
   it('accepts ready/pong/stopped/error/metrics', () => {
     const ready = { type: 'session.ready', sessionId: 's1', asr: { provider: 'mock', language: 'auto' }, translation: { provider: 'mock', targetLanguage: 'zh-CN' } };

@@ -12,7 +12,7 @@
 | `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_RPM` | — / `gemini-3.5-flash-lite` / `12` | AI Studio |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | — / — / — / `0`(不限) | 任意 OpenAI 兼容端点；裸主机自动补 `/v1` |
 | `GOOGLE_TRANSLATE_API_KEY` | — | Google Cloud Translation |
-| `MODELS_DIR` | `packages/server/models` | 模型目录 |
+| `MODELS_DIR` | `packages/server/models` | 模型目录。`models.lock.json` 分四组：`asr`（启动时必需）、`translation`（本机 Hy-MT2）、`enhance`（降噪）、`diarization`（说话人分离），后三组在首次使用时按需下载；`npm run models:download -- --group <组>` 可预下载 |
 | `AUTO_DOWNLOAD_MODELS` | `1` | 缺失模型自动下载（按 `models.lock.json` 的 URL 与 SHA-256）；`0` 关闭 |
 | `LOGS_DIR` | `packages/server/logs` | 会话摘要与服务日志；`off` 关闭摘要文件 |
 | `LOG_TRANSCRIPTS` | `0` | `1` 时把 final 文本写入日志（调试用） |
@@ -27,6 +27,9 @@
 | 来源 / 翻译成 | 自动检测 / 简体中文 | 下次开始 |
 | 翻译引擎 | 本机 Hy-MT2 | 下次开始 |
 | 边说边翻译 | 关 | 下次开始（翻译过慢时自动只翻整句） |
+| 降噪 | 关 | 下次开始；首次开启时后端下载 GTCRN 模型（0.5 MB） |
+| 区分说话人 | 关 | 下次开始；首次开启时后端下载 pyannote + 3D-Speaker 模型（约 46 MB）。本机后端时 popup 提示 CPU 负担 |
+| 多人同时说话时 | 标记 | 下次开始；`标记` / `跳过` / `照常识别`，只在「区分说话人」开启时有效 |
 | 会话上限 | 3 小时 | 下次开始 |
 | 后端地址（诊断区） | `ws://127.0.0.1:8787/ws` | 点「应用」后立即用于状态检查；会话在下次开始时切换。非本机地址会向 Chrome 申请该地址的访问权限（`optional_host_permissions`） |
 | 字幕样式（字号、位置、透明度、原文/翻译显示、自动缩放、控制条上移、描边、字体、行数） | 22px / 10% / 72% / 开 / 开 / 开 / 开 / 关 / 系统 / 2 行 | 立即 |

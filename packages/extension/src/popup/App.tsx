@@ -3,7 +3,8 @@ import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_BACKEND_URL, DEFAULT_SETTINGS, FONT_FAMILIES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, backendHealthUrl, backendPermissionOrigins, languageLabel, normalizeBackendUrl, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { DEFAULT_BACKEND_URL, DEFAULT_SETTINGS, FONT_FAMILIES, OVERLAP_CHOICES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, backendHealthUrl, backendPermissionOrigins, isLocalBackend, languageLabel, normalizeBackendUrl, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import type { OverlapMode } from '@lst/protocol';
 import { friendlyError } from '../shared/friendly-error.js';
 
 const HEALTH_POLL_MS = 3000;
@@ -35,14 +36,16 @@ interface BackendHealth {
   asrProvider?: string;
   translationProvider?: string;
   engines?: Record<string, EngineStatus>;
-  models?: { asr: ModelGroupState; translation: ModelGroupState } | null;
+  models?: Record<string, ModelGroupState> | null;
 }
+
+const MODEL_GROUP_NAMES: Record<string, string> = { asr: '语音识别模型', translation: '翻译模型', enhance: '降噪模型', diarization: '说话人分离模型' };
 
 function modelProgressText(models: BackendHealth['models']): string | null {
   if (!models) return null;
   const parts: string[] = [];
-  for (const [group, st] of [['asr', models.asr], ['translation', models.translation]] as const) {
-    const name = group === 'asr' ? '语音识别模型' : '翻译模型';
+  for (const [group, st] of Object.entries(models)) {
+    const name = MODEL_GROUP_NAMES[group] ?? group;
     if (st.status === 'downloading') {
       const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
       const pct = st.progress === undefined ? '' : ` ${Math.round(st.progress * 100)}%`;
@@ -285,7 +288,11 @@ export function App() {
     (snapshot.sourceLanguage !== settings.sourceLanguage ||
       snapshot.targetLanguage !== settings.targetLanguage ||
       (snapshot.translatePartials !== undefined && snapshot.translatePartials !== settings.translatePartials) ||
+      (snapshot.denoise !== undefined && snapshot.denoise !== settings.denoise) ||
+      (snapshot.diarize !== undefined && snapshot.diarize !== settings.diarize) ||
       (snapshot.translation !== undefined && snapshot.translation.provider !== settings.translationEngine));
+  // A feature that was requested but could not be enabled by the backend (model failed to load).
+  const voiceDegraded = isActive && snapshot?.asr !== undefined && ((snapshot.denoise === true && snapshot.asr.denoise === false) || (snapshot.diarize === true && snapshot.asr.diarize === false));
   const providerName = (p: string | undefined) =>
     p === 'sensevoice' ? 'SenseVoice' : p === 'hy-mt2' ? 'Hy-MT2' : p === 'gemini' ? 'Gemini' : p === 'llm' ? 'LLM' : p === 'google' ? 'Google' : p === 'none' ? '无' : p ?? '…';
 
@@ -342,6 +349,26 @@ export function App() {
         <label className="check subtle">
           <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；翻译跟不上时自动只翻整句；下次开始时生效）
         </label>
+        <label className="check subtle">
+          <input type="checkbox" checked={settings.denoise} onChange={(e) => updateSettings({ denoise: e.target.checked })} /> 降噪（游戏音效或背景音乐盖住人声时开启；对干净人声略有损伤；下次开始时生效）
+        </label>
+        <label className="check subtle">
+          <input type="checkbox" checked={settings.diarize} onChange={(e) => updateSettings({ diarize: e.target.checked })} /> 区分说话人（多人对话时按说话人切句并标注 A / B；每句约多 0.3–0.5 s；下次开始时生效）
+        </label>
+        {settings.diarize && (
+          <div className="field">
+            <label htmlFor="overlap">多人同时说话时</label>
+            <select id="overlap" value={settings.overlap} onChange={(e) => updateSettings({ overlap: e.target.value as OverlapMode })}>
+              {OVERLAP_CHOICES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {isLocalBackend(settings.backendUrl) && <div className="field-hint warn">本机后端开启「区分说话人」会明显增加 CPU 负担，可能拖慢识别；建议改用远程后端（诊断 → 后端地址）。</div>}
+          </div>
+        )}
+        {voiceDegraded && <div className="pending">后端未能启用{snapshot?.denoise && snapshot.asr?.denoise === false ? '降噪' : ''}{snapshot?.diarize && snapshot.asr?.diarize === false ? ' 区分说话人' : ''}（模型加载失败），本次会话按普通模式识别。</div>}
         {languagesPending && snapshot && (
           <div className="pending">
             当前会话仍使用 {languageLabel(snapshot.sourceLanguage ?? '')} → {languageLabel(snapshot.targetLanguage ?? '')}（{providerName(snapshot.translation?.provider)}），新设置将在下次开始时生效。
@@ -371,7 +398,7 @@ export function App() {
                   ? '正在重新连接本地后端…'
                   : `识别 ${providerName(snapshot?.asr?.provider)} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
                       snapshot?.metrics ? ` · ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
-                    }  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
+                    }${snapshot?.asr?.denoise ? ' · 降噪' : ''}${snapshot?.asr?.diarize ? ' · 分说话人' : ''}  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
                       snapshot?.metrics && snapshot.metrics.translated > 0 ? ` · ${(snapshot.metrics.avgTranslateMs / 1000).toFixed(1)} s` : ''
                     }${snapshot?.metrics && snapshot.metrics.translationBacklog > 1 ? ` · 排队 ${snapshot.metrics.translationBacklog}` : ''}`}
               </div>

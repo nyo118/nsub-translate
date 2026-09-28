@@ -1,4 +1,4 @@
-import type { TranscriptMessage } from '@lst/protocol';
+import { OVERLAP_PLACEHOLDER, type TranscriptMessage } from '@lst/protocol';
 import type { AsrTranscript } from '../asr/types.js';
 import type { TranslationAdapter, TranslationContextItem } from './types.js';
 
@@ -38,6 +38,8 @@ interface SegmentState {
   startMs: number;
   endMs?: number;
   language?: string;
+  speaker?: string;
+  overlap?: boolean;
   lastPartialTranslateAt: number;
   translatedText?: string;
 }
@@ -115,9 +117,13 @@ export class TranslationPipeline {
     }
     if (t.endMs !== undefined) seg.endMs = t.endMs;
     if (t.language !== undefined) seg.language = t.language;
+    if (t.speaker !== undefined) seg.speaker = t.speaker;
+    if (t.overlap !== undefined) seg.overlap = t.overlap;
     this.emit(t.segmentId, seg);
 
     if (this.failed) return;
+    // An overlap placeholder is a notice, not speech: nothing to translate.
+    if (t.overlap && t.text === OVERLAP_PLACEHOLDER) return;
     if (t.status === 'final') {
       // A final supersedes any pending or in-flight partial of the same segment.
       if (this.pendingPartial?.segmentId === t.segmentId) this.pendingPartial = null;
@@ -240,6 +246,8 @@ export class TranslationPipeline {
     if (seg.endMs !== undefined) message.endMs = seg.endMs;
     if (seg.translatedText !== undefined) message.translatedText = seg.translatedText;
     if (seg.language !== undefined) message.language = seg.language;
+    if (seg.speaker !== undefined) message.speaker = seg.speaker;
+    if (seg.overlap !== undefined) message.overlap = seg.overlap;
     this.o.emit(message);
   }
 

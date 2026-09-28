@@ -1,4 +1,4 @@
-import type { TranscriptStatus } from '@lst/protocol';
+import type { OverlapMode, TranscriptStatus } from '@lst/protocol';
 
 /** One recognition result for a speech segment (no sessionId; the Session adds it). */
 export interface AsrTranscript {
@@ -10,6 +10,10 @@ export interface AsrTranscript {
   text: string;
   /** Language detected by the recognizer, if any (e.g. "en", "ja", "zh"). */
   language?: string;
+  /** Session-stable speaker label ("A", "B", …) when diarization is on. */
+  speaker?: string;
+  /** Several voices overlapped in this segment. */
+  overlap?: boolean;
 }
 
 export interface AsrMetricsSample {
@@ -24,6 +28,10 @@ export interface AsrStartOptions {
   sessionId: string;
   /** Popup language code ("auto", "en", "ja", "zh-CN", ...). Adapters map it to what they support. */
   sourceLanguage: string;
+  /** Multi-voice options (protocol v6); adapters that cannot honour them ignore them. */
+  denoise?: boolean;
+  diarize?: boolean;
+  overlap?: OverlapMode;
 }
 
 export interface AsrAdapterEvents {
@@ -38,7 +46,8 @@ export interface AsrAdapterEvents {
  */
 export interface AsrAdapter {
   readonly provider: string;
-  start(options: AsrStartOptions): Promise<{ language: string }>;
+  /** Resolves with what is actually active (a denoiser that failed to load reports denoise: false). */
+  start(options: AsrStartOptions): Promise<{ language: string; denoise?: boolean; diarize?: boolean }>;
   pushAudio(pcm: Int16Array): void;
   /** Flush pending speech (emit remaining finals) and release resources. Idempotent. */
   stop(): Promise<void>;

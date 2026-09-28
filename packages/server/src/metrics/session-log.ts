@@ -18,6 +18,8 @@ export interface SessionSummary {
   asrLanguage: string;
   translationProvider: string;
   translatePartials: boolean;
+  denoise: boolean;
+  diarize: boolean;
   audioSeconds: number;
   partials: number;
   finals: number;

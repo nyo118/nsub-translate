@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 — 2026-09-28
+
+### 新增（多声源，全部默认关闭，popup 开启）
+- **降噪**：GTCRN 流式语音增强前置于识别，针对游戏音效 / 背景音乐盖住人声的场景（模型 0.5 MB，首次开启时自动下载）。
+- **区分说话人**：每句收尾时用 pyannote segmentation 3.0 按说话人切段，3D-Speaker 声纹映射为会话内稳定的 A / B / C… 标签（最多 6 人），字幕前显示彩色字母；每句多约 0.3–0.5 s（模型约 46 MB，首次开启时下载）。
+- **多人同时说话**：标记「[多人同时说话]」（默认）/ 跳过 / 照常识别；占位段不翻译。
+- 基准脚本新增 `--clip clean|bgm|duet|mixed`、`--denoise`、`--diarize`、`--overlap`、`--show-text`。
+
+### 变更
+- 协议 v6：`session.start.options.denoise / diarize / overlap`，`session.ready.asr.denoise / diarize`，`transcript.speaker / overlap`。扩展与后端需同为 0.2.x。
+- `models.lock.json` 新增 `enhance`、`diarization` 两组；`/healthz.models` 与 popup 进度按组显示。
+- 会话摘要日志新增 `denoise / diarize` 字段。
+
+### 已知限制
+- 重叠人声不做语音分离（sherpa-onnx 无绑定），只能标记 / 跳过。
+- 本机 Intel 4 核同时开本机翻译与区分说话人会明显吃紧，建议远程后端。
+
 ## 0.1.1 — 2026-09-25
 
 ### 新增

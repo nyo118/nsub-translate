@@ -43,6 +43,10 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
   await fontSize.fill('30');
   await expect(page.getByText('30px')).toBeVisible();
   await page.getByLabel('显示原文').uncheck();
+  // 0.2.0 multi-voice toggles: the overlap policy only shows once diarization is on.
+  await expect(page.locator('#overlap')).toHaveCount(0);
+  await page.getByLabel(/区分说话人/).check();
+  await page.locator('#overlap').selectOption('skip');
 
   const stored = await page.evaluate(() => chrome.storage.local.get('settings'));
   expect(stored).toEqual({
@@ -53,6 +57,9 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
       translationEngine: 'hy-mt2',
       translatePartials: false,
       sessionLimitHours: 3,
+      denoise: false,
+      diarize: true,
+      overlap: 'skip',
       backendUrl: 'ws://127.0.0.1:8787/ws',
       style: { fontSize: 30, position: 10, backgroundOpacity: 0.72, showSource: false, showTranslated: true, autoScale: true, outline: false, fontFamily: 'system', maxLines: 2, avoidControls: true },
     },
@@ -65,6 +72,7 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
   await expect(page.getByLabel('显示原文')).not.toBeChecked();
 
   await page.getByRole('button', { name: '恢复默认' }).click();
+  await expect(page.locator('#overlap')).toHaveCount(0);
   await expect(page.locator('#target')).toHaveValue('zh-CN');
   await expect(page.locator('#source')).toHaveValue('auto');
 });
@@ -82,7 +90,7 @@ test('an extension page can complete the protocol handshake with the local backe
         ws.binaryType = 'arraybuffer';
         const timer = setTimeout(() => reject(new Error(`timeout; received: ${received.join(' | ')}`)), 8000);
         ws.onopen = () =>
-          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 5, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
+          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 6, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
         ws.onmessage = (ev) => {
           const msg = JSON.parse(String(ev.data)) as { type: string; sessionId?: string; code?: string };
           received.push(msg.type === 'session.error' ? `session.error:${msg.code}` : msg.type);

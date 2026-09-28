@@ -1,4 +1,4 @@
-import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from '../shared/platform.js';
 import type { ReleasedResources, SessionSnapshot, SessionStatus } from '../shared/messages.js';
 
@@ -18,11 +18,24 @@ export interface PersistedSession {
   asr?: AsrInfo;
   translation?: TranslationInfo;
   translatePartials?: boolean;
+  denoise?: boolean;
+  diarize?: boolean;
   /** Wall time of the backend session's audio-clock zero (set once audio flows). */
   audioOriginWall?: number;
   sessionLimitMs?: number;
   reconnects?: number;
   lastError?: string;
+}
+
+/** Settings read once at start and sent to the backend (later changes never touch a running session). */
+export interface StartSettings {
+  sourceLanguage: string;
+  targetLanguage: string;
+  translatePartials: boolean;
+  translationProvider: string;
+  denoise: boolean;
+  diarize: boolean;
+  overlap: OverlapMode;
 }
 
 /**
@@ -33,7 +46,7 @@ export interface PersistedSession {
 export interface SessionPorts {
   loadState(): Promise<PersistedSession | undefined>;
   /** Current user settings; read at start time so later changes never touch a running session. */
-  loadLanguages(): Promise<{ sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number; backendUrl: string }>;
+  loadLanguages(): Promise<StartSettings & { sessionLimitMs: number; backendUrl: string }>;
   saveState(state: PersistedSession): Promise<void>;
   clearState(): Promise<void>;
   /** Resolve the tab the user wants to translate; throws if none. */
@@ -43,7 +56,7 @@ export interface SessionPorts {
   ensureOffscreen(): Promise<void>;
   hasOffscreen(): Promise<boolean>;
   closeOffscreen(): Promise<void>;
-  startOffscreen(req: { streamId: string; backendUrl: string; sourceLanguage: string; targetLanguage: string; translatePartials: boolean; translationProvider: string; sessionLimitMs: number }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
+  startOffscreen(req: StartSettings & { streamId: string; backendUrl: string; sessionLimitMs: number }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
   notifyContent(
     tabId: number,
@@ -121,6 +134,8 @@ export class SessionManager {
     if (state.asr !== undefined) snap.asr = state.asr;
     if (state.translation !== undefined) snap.translation = state.translation;
     if (state.translatePartials !== undefined) snap.translatePartials = state.translatePartials;
+    if (state.denoise !== undefined) snap.denoise = state.denoise;
+    if (state.diarize !== undefined) snap.diarize = state.diarize;
     if (state.sessionLimitMs !== undefined) snap.sessionLimitMs = state.sessionLimitMs;
     snap.reconnects = state.reconnects ?? 0;
     if (state.status === 'active') {

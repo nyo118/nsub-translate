@@ -67,6 +67,26 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
+## 多声源处理（0.2.0，协议 v6）
+
+```
+ audio 100 ms 帧 ─▶ [降噪 OnlineSpeechDenoiser(GTCRN)，可选] ─▶ Segmenter（VAD / partial / 软切分，不变）
+                                                                     │ final 收句时，若开启区分说话人：
+                                                                     │  splitter(samples)
+                                                                     │   ├─ OfflineSpeakerDiarization(pyannote seg-3.0 int8 + 3D-Speaker).process → [{start,end,speaker}]
+                                                                     │   ├─ speaker-split.ts splitBySpeaker：扫描线 → 单人片段 / 重叠片段；< 400 ms 的碎片并入邻居；静音归前一片
+                                                                     │   ├─ 每个单人片段（≥ 0.5 s）取声纹 → SpeakerRegistry（余弦 ≥ 0.45 复用标签，否则新建 A/B/C…，上限 6；每人保持滑动均值）
+                                                                     │   └─ 重叠片段按 overlap 策略：mark → 预置文本「[多人同时说话]」不解码；skip → 丢弃；recognize → 解码并标记
+                                                                     ▼
+                                     每个片段一条 final：第一片沿用 segmentId（顶掉 partial），其余为 `segmentId-2/-3…`，带 speaker / overlap
+```
+
+- **为什么在 final 才分离**：pyannote 是离线模型，需要整段音频；partial 仍按整段解码、不带说话人，final 到来时被第一片顶掉。每句额外成本 = 分割（约 60 ms/5 s）+ 每片声纹（约 200 ms）。
+- **稳定标签**：pyannote 每次调用独立聚类，编号只在段内有意义；跨段一致性由 `SpeakerRegistry`（纯 TS，可单测）负责。
+- **降级**：模型加载失败只关闭该功能（`session.ready.asr.denoise/diarize` 报 false，popup 提示），分离过程抛错则整段照常解码。
+- **翻译**：`TranslationPipeline` 透传 `speaker/overlap`；`[多人同时说话]` 占位段不进翻译队列。
+- **模型组**：`models.lock.json` 新增 `enhance`（gtcrn_simple.onnx）与 `diarization`（pyannote model.int8.onnx + 3dspeaker eres2net）；`SherpaAsrAdapter.start` 先经 `ModelManager.ensure(group)` 按需下载再启动。
+
 ## 发布与可复现性（Phase 7）
 
 - **版本**：`scripts/set-version.mjs` 同步 root / 各包 / `manifest.json`；扩展与后端同版本发布，协议版本不兼容时握手即报错。
@@ -126,6 +146,8 @@ Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异�
 ```
 
 - **引擎选择**：`TranslationRegistry` 注册 `hy-mt2 / gemini / llm / google / none / mock`（`gemini` 与 `llm` 共用 `openai-compatible-adapter.ts`：system prompt + 前 2 句作为对话历史，429/5xx 重试一次；`hy-mt2` 使用 `preferredContextSize = 0` 以缩短 prefill），默认引擎（`TRANSLATION_PROVIDER`）启动时预加载，其余在首次被会话选用时才 `prepare()`（1 GB 模型只在需要时加载；准备失败不缓存，下次重试）。客户端通过 `session.start.options.translationProvider` 选择；未知或不可用 → `translation_unavailable`。
+- **协议 v6**（0.2.0）：`session.start.options.denoise / diarize / overlap('mark'|'skip'|'recognize')`；`session.ready.asr.denoise / diarize`（实际生效状态）；`transcript.speaker`（"A"…）与 `transcript.overlap`。
+- **协议 v5**：`session.metrics` 增加 p95 与翻译覆盖率。
 - **协议 v4**：`session.start.options.translationProvider`。
 - **协议 v3**：`session.start.options.translatePartials`；`session.ready.translation{provider,targetLanguage}`；`session.metrics` 增加 `translated / avgTranslateMs / translationBacklog`；错误码 `translation_unavailable / translation_failed / unsupported_language`。
 - **为什么不用 worker**：node-llama-cpp 的推理在原生线程执行、JS API 为 async，不会阻塞事件循环；模型与 context 全局共享，`HyMt2Runtime.lock` 保证跨会话串行。

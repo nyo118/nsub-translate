@@ -221,3 +221,55 @@ describe('Segmenter', () => {
     expect(metrics).toContain('final');
   });
 });
+
+describe('Segmenter with a splitter (speaker diarization hook)', () => {
+  it('emits one final per piece: the first keeps the segment id, later ones are suffixed, all outrank the partials', () => {
+    const { out } = run([[0, RATE * 4]], RATE * 5, {
+      splitter: (samples) => [
+        { offset: 0, length: RATE * 2, speaker: 'A' },
+        { offset: RATE * 2, length: samples.length - RATE * 2, speaker: 'B' },
+      ],
+    });
+    const partials = out.filter((t) => t.status === 'partial');
+    const finals = out.filter((t) => t.status === 'final');
+    expect(partials.length).toBeGreaterThan(0);
+    expect(finals.map((t) => [t.segmentId, t.speaker, Number(t.text.slice(4))])).toEqual([
+      ['seg-0001', 'A', RATE * 2],
+      ['seg-0001-2', 'B', RATE * 2 + WIN * 0], // remainder of the ~4 s segment
+    ].map(([id, sp, len], i) => (i === 1 ? [id, sp, expect.any(Number)] : [id, sp, len])));
+    for (const f of finals) expect(f.revision).toBeGreaterThan(partials[partials.length - 1]!.revision);
+    // Timing is contiguous: piece 2 starts where piece 1 ends.
+    expect(finals[1]!.startMs).toBe(finals[0]!.endMs);
+  });
+
+  it('emits placeholder pieces without decoding and flags them as overlap', () => {
+    let decodes = 0;
+    const rec: Recognizer = { decode: (s) => (decodes++, { text: `len=${s.length}` }) };
+    const { out } = run([[0, RATE * 3]], RATE * 4, {
+      recognizer: rec,
+      minPartialMs: 60_000, // no partials, count only final decodes
+      splitter: (samples) => [
+        { offset: 0, length: RATE, speaker: 'A' },
+        { offset: RATE, length: RATE, overlap: true, text: '[overlap]' },
+        { offset: RATE * 2, length: samples.length - RATE * 2, overlap: true }, // "recognize" mode: decoded, flagged
+      ],
+    });
+    const finals = out.filter((t) => t.status === 'final');
+    expect(finals.map((t) => [t.text.startsWith('len=') ? 'decoded' : t.text, t.speaker, t.overlap])).toEqual([
+      ['decoded', 'A', undefined],
+      ['[overlap]', undefined, true],
+      ['decoded', undefined, true],
+    ]);
+    expect(decodes).toBe(2);
+  });
+
+  it('decodes the segment whole when the splitter returns null or nothing', () => {
+    for (const splitter of [() => null, () => []]) {
+      const { out } = run([[0, RATE * 2]], RATE * 3, { splitter });
+      const finals = out.filter((t) => t.status === 'final');
+      expect(finals).toHaveLength(1);
+      expect(finals[0]!.segmentId).toBe('seg-0001');
+      expect(finals[0]!.speaker).toBeUndefined();
+    }
+  });
+});

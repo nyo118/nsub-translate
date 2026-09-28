@@ -13,6 +13,8 @@ export interface CachedSegment {
   endTime: number;
   sourceText: string;
   translatedText?: string;
+  speaker?: string;
+  overlap?: boolean;
 }
 
 export class SubtitleCache {
@@ -43,7 +45,12 @@ export class SubtitleCache {
     const idx = sorted.findIndex((s) => videoTime >= s.startTime && videoTime <= s.endTime + slack);
     if (idx < 0) return [];
     const picked = sorted.slice(Math.max(0, idx - 1), idx + 1);
-    return picked.map((s) => ({ sourceText: s.sourceText, translatedText: s.translatedText, status: 'final' as const }));
+    return picked.map((s) => {
+      const line: SubtitleLine = { sourceText: s.sourceText, translatedText: s.translatedText, status: 'final' };
+      if (s.speaker !== undefined) line.speaker = s.speaker;
+      if (s.overlap !== undefined) line.overlap = s.overlap;
+      return line;
+    });
   }
 
   get size(): number {

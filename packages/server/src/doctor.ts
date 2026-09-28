@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from './config.js';
 import { diagnoseSherpa } from './asr/sherpa-diagnose.js';
-import { SherpaWorkerHost } from './asr/sherpa-adapter.js';
+import { DENOISER_MODEL_FILE, EMBEDDING_MODEL_FILE, SEGMENTATION_MODEL_FILE, SherpaWorkerHost } from './asr/sherpa-adapter.js';
 import { HYMT2_MODEL_FILE } from './translation/hymt2-adapter.js';
 
 /**
@@ -30,6 +30,14 @@ lines.push(`${ok(native.ok)} sherpa-onnx native module (${native.platformPackage
 if (!native.ok) lines.push(native.message.split('\n').map((l) => `    ${l}`).join('\n'));
 const modelsMissing = SherpaWorkerHost.checkModels(config.modelsDir);
 lines.push(`${ok(modelsMissing === null)} ASR models in ${config.modelsDir}${modelsMissing === null ? '' : ' — will be downloaded automatically at backend start (or: npm run models:download)'}`);
+for (const [label, file, hint] of [
+  ['denoiser model (popup: 降噪)', DENOISER_MODEL_FILE, 'downloaded on first use'],
+  ['speaker segmentation model (popup: 区分说话人)', SEGMENTATION_MODEL_FILE, 'downloaded on first use'],
+  ['speaker embedding model (popup: 区分说话人)', EMBEDDING_MODEL_FILE, 'downloaded on first use'],
+] as const) {
+  const present = existsSync(path.join(config.modelsDir, file));
+  lines.push(`${ok(present)} ${label} ${file}${present ? '' : ` — ${hint}`}`);
+}
 const mt = path.join(config.modelsDir, HYMT2_MODEL_FILE);
 lines.push(`${ok(existsSync(mt))} local translation model ${HYMT2_MODEL_FILE}${existsSync(mt) ? '' : ' — downloaded on first use of the hy-mt2 engine'}`);
 let llama = false;

@@ -133,3 +133,26 @@ describe('SubtitleOverlay readability', () => {
     expect(lines[1]!.classList.contains('lst-current')).toBe(true);
   });
 });
+
+describe('SubtitleOverlay speaker labels', () => {
+  it('prefixes the first visible row with a coloured speaker letter and styles overlap lines', () => {
+    document.body.innerHTML = `<div id="movie_player"></div>`;
+    const overlay = new SubtitleOverlay(document);
+    overlay.mount(document.getElementById('movie_player')!);
+    overlay.render([
+      { sourceText: 'Hello', translatedText: '你好', status: 'final', speaker: 'A' },
+      { sourceText: '[多人同时说话]', translatedText: undefined, status: 'final', overlap: true },
+      { sourceText: 'Plain', translatedText: undefined, status: 'partial' },
+    ]);
+    const lines = document.querySelector(`#${OVERLAY_HOST_ID}`)!.shadowRoot!.querySelectorAll('.lst-line');
+    expect(lines[0]!.querySelector('.lst-source')!.textContent).toBe('A:Hello');
+    expect(lines[0]!.querySelectorAll('.lst-speaker')).toHaveLength(1); // only on the first row
+    expect(lines[0]!.querySelector('.lst-translated')!.textContent).toBe('你好');
+    expect(lines[1]!.classList.contains('lst-overlap')).toBe(true);
+    expect(lines[2]!.querySelector('.lst-speaker')).toBeNull();
+    // Source hidden → the letter moves to the translated row.
+    overlay.setStyle({ ...DEFAULT_STYLE, showSource: false });
+    const again = document.querySelector(`#${OVERLAY_HOST_ID}`)!.shadowRoot!.querySelectorAll('.lst-line');
+    expect(again[0]!.querySelector('.lst-translated')!.textContent).toBe('A:你好');
+  });
+});

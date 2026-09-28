@@ -8,7 +8,7 @@ import { OverlayBinder } from './overlay-binder.js';
 import { SubtitleStore } from './subtitle-state.js';
 import { PlaybackTimeline } from './playback-timeline.js';
 import { PlaybackTracker } from './playback-tracker.js';
-import { SubtitleCache } from './subtitle-cache.js';
+import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
 
 /**
  * Content script for youtube.com / twitch.tv. It never touches the
@@ -96,8 +96,11 @@ import { SubtitleCache } from './subtitle-cache.js';
       const startTime = timeline.videoTimeAt(span.start);
       const endTime = timeline.videoTimeAt(span.end);
       if (startTime !== null && endTime !== null) {
-        const seg = { segmentId: t.segmentId, startTime, endTime, sourceText: t.sourceText };
-        cache.upsert(t.translatedText === undefined ? seg : { ...seg, translatedText: t.translatedText });
+        const seg: CachedSegment = { segmentId: t.segmentId, startTime, endTime, sourceText: t.sourceText };
+        if (t.translatedText !== undefined) seg.translatedText = t.translatedText;
+        if (t.speaker !== undefined) seg.speaker = t.speaker;
+        if (t.overlap !== undefined) seg.overlap = t.overlap;
+        cache.upsert(seg);
       }
     }
     if (span !== null && timeline.isStale(span.end)) {

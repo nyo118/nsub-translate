@@ -5,7 +5,16 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 5 as const;
+export const PROTOCOL_VERSION = 6 as const;
+
+/**
+ * v6 (0.2.0): multi-voice options in `session.start.options` — `denoise`
+ * (speech enhancement before the recognizer), `diarize` (split segments by
+ * speaker and label them) and `overlap` (what to do when two people talk at
+ * once). `transcript.speaker` carries the session-stable speaker label
+ * ("A", "B", …) when diarization is on; `transcript.overlap` marks a
+ * segment where several voices overlapped.
+ */
 
 /** v5: percentile latency and translation coverage in `session.metrics`. */
 
@@ -47,7 +56,22 @@ export interface SessionOptions {
   translatePartials: boolean;
   /** Translation engine name known to the backend (e.g. "hy-mt2", "google"); omitted = backend default. */
   translationProvider?: string;
+  /** Run the speech denoiser (GTCRN) before recognition — for game/BGM audio. Default false. */
+  denoise?: boolean;
+  /** Split each segment by speaker and label transcripts "A", "B", …. Default false. */
+  diarize?: boolean;
+  /**
+   * Overlapping speech (needs `diarize`): `mark` emits a placeholder
+   * transcript flagged `overlap`, `skip` emits nothing, `recognize` decodes the
+   * mixed audio anyway. Default `mark`.
+   */
+  overlap?: OverlapMode;
 }
+
+export type OverlapMode = 'mark' | 'skip' | 'recognize';
+export const OVERLAP_MODES: readonly OverlapMode[] = ['mark', 'skip', 'recognize'];
+/** sourceText of a `mark`-mode overlap transcript. Never translated; the overlay shows it as a notice. */
+export const OVERLAP_PLACEHOLDER = '[多人同时说话]';
 
 export interface SessionStartMessage {
   type: 'session.start';
@@ -79,6 +103,9 @@ export interface AsrInfo {
   provider: string;
   /** Language actually used by the recognizer ("auto" = in-model detection). */
   language: string;
+  /** v6: whether the denoiser / speaker diarization are active for this session. */
+  denoise?: boolean;
+  diarize?: boolean;
 }
 
 export interface TranslationInfo {
@@ -133,6 +160,10 @@ export interface TranscriptMessage {
   translatedText?: string;
   /** Language detected by the recognizer for this segment (e.g. "en", "ja"), when known. */
   language?: string;
+  /** Speaker label, stable within the session ("A", "B", …), when diarization is on. */
+  speaker?: string;
+  /** True when several voices overlapped in this segment (sourceText is then a placeholder in `mark` mode). */
+  overlap?: boolean;
 }
 
 export interface SessionPongMessage {

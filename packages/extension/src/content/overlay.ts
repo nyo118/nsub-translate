@@ -45,7 +45,18 @@ const STYLES = `
   .lst-partial .lst-source { opacity: 0.85; font-style: italic; }
   .lst-partial .lst-translated { opacity: 0.7; }
   .lst-badge { font-size: 11px; color: #9be7d0; letter-spacing: 0.04em; }
+  /* Speaker labels (diarization): a coloured letter before the text, one colour per speaker. */
+  .lst-speaker { font-weight: 700; margin-right: 0.35em; color: var(--lst-speaker-color, #ffd166); }
+  .lst-overlap .lst-source, .lst-overlap .lst-translated { opacity: 0.6; font-style: italic; font-weight: 400; }
 `;
+
+/** One colour per speaker label, in label order (A, B, C, …); chosen to stay readable on a dark box. */
+export const SPEAKER_COLORS: readonly string[] = ['#ffd166', '#7fd8ff', '#b5f28c', '#ff9fb2', '#d7b3ff', '#ffb870'];
+
+export function speakerColor(label: string): string {
+  const idx = label.charCodeAt(0) - 'A'.charCodeAt(0);
+  return SPEAKER_COLORS[((idx % SPEAKER_COLORS.length) + SPEAKER_COLORS.length) % SPEAKER_COLORS.length] ?? SPEAKER_COLORS[0]!;
+}
 
 /** Outline = dark stroke around glyphs (simulated with 8 shadows), on top of the default drop shadow. */
 const OUTLINE_SHADOW = '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px 0 0 #000, 1px 0 0 #000, 0 2px 3px rgba(0,0,0,0.9)';
@@ -170,17 +181,30 @@ export class SubtitleOverlay {
       const showTranslated = this.style.showTranslated && line.translatedText !== undefined;
       if (!showSource && !showTranslated) return;
       const el = this.doc.createElement('div');
-      el.className = `lst-line ${line.status === 'partial' ? 'lst-partial' : 'lst-final'}${index === lines.length - 1 ? ' lst-current' : ''}`;
+      el.className = `lst-line ${line.status === 'partial' ? 'lst-partial' : 'lst-final'}${index === lines.length - 1 ? ' lst-current' : ''}${line.overlap ? ' lst-overlap' : ''}`;
+      // The speaker letter goes on the first visible row only.
+      let speakerPending = line.speaker;
+      const withSpeaker = (row: HTMLElement, text: string) => {
+        if (speakerPending !== undefined) {
+          const tag = this.doc.createElement('span');
+          tag.className = 'lst-speaker';
+          tag.textContent = `${speakerPending}:`;
+          tag.style.setProperty('--lst-speaker-color', speakerColor(speakerPending));
+          row.appendChild(tag);
+          speakerPending = undefined;
+        }
+        row.appendChild(this.doc.createTextNode(text));
+      };
       if (showSource) {
         const source = this.doc.createElement('div');
         source.className = 'lst-source';
-        source.textContent = line.sourceText;
+        withSpeaker(source, line.sourceText);
         el.appendChild(source);
       }
       if (showTranslated) {
         const translated = this.doc.createElement('div');
         translated.className = 'lst-translated';
-        translated.textContent = line.translatedText ?? '';
+        withSpeaker(translated, line.translatedText ?? '');
         el.appendChild(translated);
       }
       this.root!.appendChild(el);

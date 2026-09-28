@@ -64,6 +64,9 @@ export const chromePorts: SessionPorts = {
       targetLanguage: s.targetLanguage,
       translatePartials: s.translatePartials,
       translationProvider: s.translationEngine,
+      denoise: s.denoise,
+      diarize: s.diarize,
+      overlap: s.overlap,
       sessionLimitMs: Math.round(s.sessionLimitHours * 3_600_000),
       backendUrl: s.backendUrl,
     };

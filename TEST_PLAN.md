@@ -214,6 +214,27 @@
 | P7-4 | 新目录 `git clone` + `npm run setup` | 一条命令完成到可运行 |
 | P7-5 | 阅读 `PRIVACY.md` / `CONFIG.md` / `TROUBLESHOOTING.md` | 与实际行为一致，无遗漏项 |
 
+## 0.2.0 增补（多声源）
+
+### 自动化
+| 项 | 覆盖 |
+|---|---|
+| `speaker-split.test.ts` | 单人透传、顺序双人切分与静音归属、重叠区间标记、全段重叠、短碎片吸收、边界钳制；`SpeakerRegistry` 标签分配 / 复用 / 上限 / 漂移自适应 |
+| `segmenter.test.ts`（splitter） | 每片一条 final、首片沿用 segmentId、后续 `-2/-3`、revision 高于 partial、占位片不解码、splitter 返回 null/空时整段解码 |
+| `voices.integration.test.ts`（真实模型，缺模型自动跳过） | en→zh 两人轮流得到两个不同 speaker；en+zh 叠加得到「[多人同时说话]」，skip 模式无重叠段；降噪前置仍正确识别 en.wav |
+| `validate.test.ts` | v6 options（denoise / diarize / overlap）与 transcript.speaker/overlap 的接受与拒绝 |
+| `settings.test.ts` / `overlay.test.ts` | 设置默认关 + 归一化；overlay 说话人字母只出现在第一行、隐藏原文时移到译文行、overlap 样式 |
+| `scripts/bench.mjs --clip clean\|bgm\|duet\|mixed [--denoise] [--diarize]` | 合成基准，结果见 `BENCHMARKS.md` |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| V-1 | Twitch 游戏直播（有 BGM），先关后开「降噪」各看 2 分钟 | 开启后误识别的音效词减少；popup 状态行出现「· 降噪」 |
+| V-2 | 双人播客视频，开「区分说话人」 | 两人分别稳定为 A / B（彩色字母），换人时另起一句 |
+| V-3 | 同上，故意选段抢话 | 出现「[多人同时说话]」占位；切到「跳过」后该段消失 |
+| V-4 | 本机后端开「区分说话人」 | popup 出现 CPU 提示；识别延迟上升但不崩 |
+| V-5 | 删除 `packages/server/models/gtcrn_simple.onnx` 后开降噪开始 | 后端自动下载后启动；`AUTO_DOWNLOAD_MODELS=0` 时报错说明缺哪个模型 |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

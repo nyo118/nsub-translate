@@ -1,4 +1,4 @@
-import type { AsrInfo, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { AsrAdapter } from './asr/types.js';
 import type { TranslationAdapter } from './translation/types.js';
 import { TranslationPipeline } from './translation/pipeline.js';
@@ -12,6 +12,10 @@ export interface SessionOptions {
   adapter: AsrAdapter;
   translation: TranslationAdapter;
   translatePartials?: boolean;
+  /** Multi-voice options (protocol v6). */
+  denoise?: boolean;
+  diarize?: boolean;
+  overlap?: OverlapMode;
   send: (message: TranscriptMessage | SessionMetricsMessage) => void;
   onError: (code: 'asr_unavailable' | 'asr_failed' | 'translation_failed', message: string) => void;
   log?: { warn: (o: Record<string, unknown>, m: string) => void; info?: (o: Record<string, unknown>, m: string) => void };
@@ -44,6 +48,8 @@ export class Session {
   private startedAtMs = 0;
   private endedAtMs = 0;
   private readonly translatePartials: boolean;
+  private readonly voiceOptions: { denoise: boolean; diarize: boolean; overlap: OverlapMode };
+  private asrFeatures: { denoise?: boolean; diarize?: boolean } = {};
   private readonly send: SessionOptions['send'];
   private readonly onError: SessionOptions['onError'];
   private readonly metricsIntervalMs: number;
@@ -79,6 +85,7 @@ export class Session {
       },
     });
     this.translatePartials = options.translatePartials ?? false;
+    this.voiceOptions = { denoise: options.denoise ?? false, diarize: options.diarize ?? false, overlap: options.overlap ?? 'mark' };
     this.onError = options.onError;
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;
     this.now = options.now ?? (() => Date.now());
@@ -89,7 +96,7 @@ export class Session {
   }
 
   get asrInfo(): AsrInfo {
-    return { provider: this.adapter.provider, language: this.asrLanguage };
+    return { provider: this.adapter.provider, language: this.asrLanguage, ...this.asrFeatures };
   }
   private asrLanguage = 'auto';
 
@@ -117,8 +124,10 @@ export class Session {
     });
     this.startedAtMs = Date.now();
     try {
-      const { language } = await this.adapter.start({ sessionId: this.sessionId, sourceLanguage: this.sourceLanguage });
-      this.asrLanguage = language;
+      const started = await this.adapter.start({ sessionId: this.sessionId, sourceLanguage: this.sourceLanguage, ...this.voiceOptions });
+      this.asrLanguage = started.language;
+      if (started.denoise !== undefined) this.asrFeatures.denoise = started.denoise;
+      if (started.diarize !== undefined) this.asrFeatures.diarize = started.diarize;
     } catch (err) {
       this._state = 'stopped';
       throw err;
@@ -171,6 +180,8 @@ export class Session {
       asrLanguage: this.asrLanguage,
       translationProvider: this.translation.provider,
       translatePartials: this.translatePartials,
+      denoise: this.asrFeatures.denoise ?? false,
+      diarize: this.asrFeatures.diarize ?? false,
       audioSeconds: m.audioSeconds,
       partials: m.partials,
       finals: m.finals,

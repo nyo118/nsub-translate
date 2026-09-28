@@ -1,12 +1,17 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-25T07:07:31.445Z",
+  "generatedAt": "2026-09-28T07:56:29.288Z",
   "notes": "Single source of truth for model files: where to get them and their SHA-256. Used by scripts/download-models.mjs, scripts/models-lock.mjs and the backend's automatic downloader.",
   "archives": {
     "sensevoice": {
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
       "format": "tar.bz2",
       "sizeBytes": 165783878
+    },
+    "pyannote-segmentation": {
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+      "format": "tar.bz2",
+      "sizeBytes": 6958444
     }
   },
   "files": {
@@ -31,6 +36,23 @@
       "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf",
       "sizeBytes": 1133080448,
       "group": "translation"
+    },
+    "gtcrn_simple.onnx": {
+      "sha256": "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx",
+      "group": "enhance",
+      "sizeBytes": 535638
+    },
+    "sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx": {
+      "sha256": "d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d",
+      "archive": "pyannote-segmentation",
+      "group": "diarization"
+    },
+    "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx": {
+      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+      "group": "diarization",
+      "sizeBytes": 39593761
     }
   }
 }
