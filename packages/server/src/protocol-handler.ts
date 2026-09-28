@@ -138,6 +138,7 @@ export class ConnectionHandler {
               translation,
               translatePartials: message.options?.translatePartials ?? false,
               ...(message.options?.denoise === undefined ? {} : { denoise: message.options.denoise }),
+              ...(message.options?.denoiser === undefined ? {} : { denoiser: message.options.denoiser }),
               ...(message.options?.diarize === undefined ? {} : { diarize: message.options.diarize }),
               ...(message.options?.overlap === undefined ? {} : { overlap: message.options.overlap }),
               log: this.log,

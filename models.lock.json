@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-28T07:56:29.288Z",
+  "generatedAt": "2026-09-28T10:08:13.554Z",
   "notes": "Single source of truth for model files: where to get them and their SHA-256. Used by scripts/download-models.mjs, scripts/models-lock.mjs and the backend's automatic downloader.",
   "archives": {
     "sensevoice": {
@@ -48,11 +48,29 @@
       "archive": "pyannote-segmentation",
       "group": "diarization"
     },
-    "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx": {
-      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-      "group": "diarization",
-      "sizeBytes": 39593761
+    "dpdfnet2.onnx": {
+      "sha256": "ce35d6025fc71df0ef10d1540e1b7916837bbfe5f6896deb744508d2cad487a9",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet2.onnx",
+      "sizeBytes": 10249356,
+      "group": "enhance"
+    },
+    "dpdfnet4.onnx": {
+      "sha256": "71b588bc26163941aa82a592cce924b08c1fbdc0879fe44f5a2d4eac44bd8420",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet4.onnx",
+      "sizeBytes": 11707436,
+      "group": "enhance"
+    },
+    "dpdfnet8.onnx": {
+      "sha256": "2751c1f5a4e849d23a07c675b4c838158b249b42152f10cc318522dd339134f0",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet8.onnx",
+      "sizeBytes": 14623619,
+      "group": "enhance"
+    },
+    "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx": {
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "sizeBytes": 28281164,
+      "group": "diarization"
     }
   }
 }

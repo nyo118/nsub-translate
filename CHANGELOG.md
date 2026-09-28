@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — 2026-09-28
+
+### 修复 / 改进（多声源）
+- **说话人标签不再乱跳**（A → B → A+C 后 A 仍是 A）。根因：旧声纹模型（3D-Speaker ERes2Net zh-cn）在跨句同人上的余弦中位数只有 0.29，而阈值定在 0.45，任何短碎片都能「新建一个人」。现在：
+  - 声纹模型换成 **3D-Speaker CAM++ zh/en**（在 8 位中文 + 8 位英语说话人的公开样本上 EER 最低、速度最快，见 `BENCHMARKS.md`「声纹校准」），阈值由校准给出；
+  - `SpeakerRegistry` 重写：每人保留 centroid + 8 个 exemplar 取最大相似度；**只有 ≥ 2 s 且与所有已知人都不像的片段才能新建说话人**，新建者先是临时身份、累计 3 s 才转正、60 s 未转正则回收；短碎片只能归入已知人，否则不标字母，永不建人；同一段里多个说话人一对一分配，不会同字母；
+  - worker 把同一本地说话人在一段里的全部音频拼起来算一次声纹（更长更准），不再只取第一片。
+- **降噪加强**：新增 DPDFNet（DeepFilterNet 系，sherpa-onnx 内置流式实现）`dpdfnet2 / 4 / 8`，默认 `dpdfnet2`；popup「降噪」下新增「强度」：轻（GTCRN）/ 中 / 强。`ASR_DENOISER`、`ASR_DENOISE_ATTENUATION_DB` 可配。
+- 新脚本 `scripts/speaker-calib.mjs`：下载公开样本、对比声纹模型、输出 EER 与建议阈值、模拟多人对话评估标签稳定性；`bench.mjs` 新增 `--clip conv`（8 人对话含重叠）与 `--denoiser`。
+
+### 变更
+- 协议 v7：`session.start.options.denoiser`、`session.ready.asr.denoiser / speakerModel`。扩展与后端需同为 0.3.x。
+- `models.lock.json`：`enhance` 组加入 dpdfnet2/4/8，`diarization` 组换成 CAM++ zh/en（旧 3D-Speaker ERes2Net 文件不再需要，可删除）。
+
 ## 0.2.2 — 2026-09-28
 
 ### 修复

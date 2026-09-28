@@ -38,6 +38,10 @@ describe('validateClientMessage', () => {
     expect(validateClientMessage({ ...start, options: { denoise: 1 } }).ok).toBe(false);
     expect(validateClientMessage({ ...start, options: { diarize: 'on' } }).ok).toBe(false);
     expect(validateClientMessage({ ...start, options: { overlap: 'merge' } }).ok).toBe(false);
+    // v7: denoiser choice
+    const d = validateClientMessage({ ...start, options: { denoise: true, denoiser: 'dpdfnet4' } });
+    expect(d.ok && d.message.type === 'session.start' && d.message.options?.denoiser).toBe('dpdfnet4');
+    expect(validateClientMessage({ ...start, options: { denoiser: 'rnnoise' } }).ok).toBe(false);
   });
   it('requires the v2 audio format', () => {
     const { audio: _audio, ...noAudio } = start;

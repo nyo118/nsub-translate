@@ -7,6 +7,7 @@ import { toSenseVoiceLanguage } from './languages.js';
 import { diagnoseSherpa } from './sherpa-diagnose.js';
 import type { WorkerInbound, WorkerOutbound } from './sherpa-messages.js';
 import type { AsrAdapter, AsrAdapterEvents, AsrAdapterFactory, AsrStartOptions } from './types.js';
+import type { DenoiserName } from '@lst/protocol';
 
 export interface SherpaConfig {
   modelsDir: string;
@@ -14,14 +15,24 @@ export interface SherpaConfig {
   log: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
   /** Fetch the optional model groups on demand (ModelManager); absent = files must already exist. */
   ensureModels?: (group: 'enhance' | 'diarization') => Promise<void>;
+  /** Denoiser used when a session does not name one. */
+  defaultDenoiser?: DenoiserName;
+  denoiseAttenuationDb?: number;
+  /** Override the speaker-embedding model file (relative to modelsDir). */
+  speakerEmbeddingModel?: string;
+  /** Override the calibrated SpeakerRegistry thresholds. */
+  speakerThresholds?: { match: number; create: number; weak: number };
 }
 
 export const SENSEVOICE_MODEL_DIR = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17';
 export const VAD_MODEL_FILE = 'silero_vad.onnx';
 /** Optional models (0.2.0): speech denoiser, speaker segmentation, speaker embedding. */
 export const DENOISER_MODEL_FILE = 'gtcrn_simple.onnx';
+/** Model file per denoiser name (models.lock.json group `enhance`). */
+export const DENOISER_MODEL_FILES: Record<DenoiserName, string> = { gtcrn: 'gtcrn_simple.onnx', dpdfnet2: 'dpdfnet2.onnx', dpdfnet4: 'dpdfnet4.onnx', dpdfnet8: 'dpdfnet8.onnx' };
 export const SEGMENTATION_MODEL_FILE = 'sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx';
-export const EMBEDDING_MODEL_FILE = '3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx';
+/** 3D-Speaker CAM++ zh/en: best EER and fastest of the four candidates calibrated in scripts/speaker-calib.mjs (BENCHMARKS.md). */
+export const EMBEDDING_MODEL_FILE = '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx';
 
 const START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 10_000;
@@ -98,9 +109,12 @@ export class SherpaWorkerHost {
       workerData: {
         modelDir: path.join(this.config.modelsDir, SENSEVOICE_MODEL_DIR),
         vadModel: path.join(this.config.modelsDir, VAD_MODEL_FILE),
-        denoiserModel: path.join(this.config.modelsDir, DENOISER_MODEL_FILE),
+        denoiserModels: Object.fromEntries(Object.entries(DENOISER_MODEL_FILES).map(([k, f]) => [k, path.join(this.config.modelsDir, f)])),
+        denoiseAttenuationDb: this.config.denoiseAttenuationDb ?? 0,
         segmentationModel: path.join(this.config.modelsDir, SEGMENTATION_MODEL_FILE),
-        embeddingModel: path.join(this.config.modelsDir, EMBEDDING_MODEL_FILE),
+        embeddingModel: path.join(this.config.modelsDir, this.config.speakerEmbeddingModel || EMBEDDING_MODEL_FILE),
+        embeddingModelName: this.config.speakerEmbeddingModel || EMBEDDING_MODEL_FILE,
+        speakerThresholds: this.config.speakerThresholds ?? null,
         numThreads: this.config.numThreads,
       },
     });
@@ -140,6 +154,7 @@ class SherpaAsrAdapter implements AsrAdapter {
   constructor(
     private readonly host: SherpaWorkerHost,
     private readonly ensureModels: SherpaConfig['ensureModels'],
+    private readonly defaultDenoiser: DenoiserName,
   ) {}
 
   on<K extends keyof AsrAdapterEvents>(event: K, listener: AsrAdapterEvents[K]): void {
@@ -150,7 +165,7 @@ class SherpaAsrAdapter implements AsrAdapter {
     for (const h of this.handlers[event]) (h as (...a: Parameters<AsrAdapterEvents[K]>) => void)(...args);
   }
 
-  async start(options: AsrStartOptions): Promise<{ language: string; denoise: boolean; diarize: boolean }> {
+  async start(options: AsrStartOptions): Promise<{ language: string; denoise: boolean; diarize: boolean; denoiser?: DenoiserName; speakerModel?: string }> {
     const language = toSenseVoiceLanguage(options.sourceLanguage);
     this.sessionId = options.sessionId;
     const denoise = options.denoise === true;
@@ -170,7 +185,7 @@ class SherpaAsrAdapter implements AsrAdapter {
           case 'started':
             started = true;
             clearTimeout(timer);
-            resolve({ language: m.language, denoise: m.denoise, diarize: m.diarize });
+            resolve({ language: m.language, denoise: m.denoise, diarize: m.diarize, ...(m.denoiser === undefined ? {} : { denoiser: m.denoiser }), ...(m.speakerModel === undefined ? {} : { speakerModel: m.speakerModel }) });
             return;
           case 'transcript':
             this.emit('transcript', m.transcript);
@@ -187,7 +202,7 @@ class SherpaAsrAdapter implements AsrAdapter {
             return;
         }
       });
-      this.host.send({ t: 'start', sessionId: options.sessionId, language, denoise, diarize, overlap: options.overlap ?? 'mark' });
+      this.host.send({ t: 'start', sessionId: options.sessionId, language, denoise, denoiser: options.denoiser ?? this.defaultDenoiser, diarize, overlap: options.overlap ?? 'mark' });
     });
   }
 
@@ -232,6 +247,6 @@ export function createSherpaFactory(config: SherpaConfig): AsrAdapterFactory {
       await host.preload();
       config.log.info({ ms: Date.now() - t0, modelsDir: config.modelsDir }, 'SenseVoice model loaded');
     },
-    create: () => new SherpaAsrAdapter(host, config.ensureModels),
+    create: () => new SherpaAsrAdapter(host, config.ensureModels, config.defaultDenoiser ?? 'dpdfnet2'),
   };
 }

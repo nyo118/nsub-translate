@@ -132,61 +132,202 @@ function clampSample(x: number, max: number): number {
 // Session-stable speaker labels
 // ---------------------------------------------------------------------------
 
-export const SPEAKER_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
+/** Letters shown to the viewer; a retired provisional speaker's letter is never reused. */
+export const SPEAKER_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
 
 export interface SpeakerRegistryOptions {
-  /** Cosine similarity needed to reuse an existing label. */
-  threshold?: number;
+  /** Cosine similarity at which an embedding is assigned to a known speaker (calibrated EER point). */
+  match?: number;
+  /** A long piece founds a new speaker only when its best similarity is below this (≈ different-speaker p99). */
+  create?: number;
+  /** Short pieces are assigned to their best match only above this (≈ different-speaker p95). */
+  weak?: number;
+  /** Active speakers (confirmed + provisional) at once. */
   maxSpeakers?: number;
-  /** Cap on how many embeddings feed a speaker's running mean (keeps it adaptive). */
-  meanWindow?: number;
+  /** Exemplar embeddings kept per speaker (FIFO). */
+  exemplars?: number;
+  /** A piece must carry at least this much speech to found a new speaker. */
+  minCreateSeconds?: number;
+  /** A provisional speaker is confirmed after this much speech across this many pieces … */
+  confirmSeconds?: number;
+  confirmPieces?: number;
+  /** … otherwise it is retired after this long (its letter stays used). */
+  provisionalTtlMs?: number;
+  now?: () => number;
+}
+
+export interface LabelContext {
+  /** Seconds of speech behind the embedding (drives create / short-piece rules). */
+  seconds: number;
+  /** Label to fall back to for a short piece nobody claims (same local speaker earlier in the segment, last speaker, …). */
+  fallback?: string;
+}
+
+interface SpeakerEntry {
+  label: string;
+  centroid: Float32Array;
+  exemplars: Float32Array[];
+  seconds: number;
+  pieces: number;
+  confirmed: boolean;
+  createdAt: number;
 }
 
 /**
- * Maps speaker embeddings to labels. Each known speaker keeps a running mean
- * embedding; a new embedding joins the closest speaker above `threshold`, or
- * founds a new speaker until `maxSpeakers` is reached (then the closest wins
- * whatever the similarity, so labels never run out mid-session).
+ * Calibrated with 3D-Speaker CAM++ zh/en on 16 public speakers (8 Chinese from
+ * sr-data, 8 English from LibriSpeech dev-clean) incl. music / speed / 1–4 s
+ * variants: EER 7.1 % at 0.195, different-speaker p95 0.23 / p99 0.35
+ * (scripts/speaker-calib.mjs, BENCHMARKS.md).
+ */
+export const DEFAULT_REGISTRY_THRESHOLDS = { match: 0.20, create: 0.35, weak: 0.23 } as const;
+
+/**
+ * Maps speaker embeddings to session-stable letters.
+ *
+ * Why the rules (0.3.0): the previous registry compared against a running
+ * mean with one threshold, so a short or noisy piece could found a new
+ * speaker at once — that is how "A" became "C" mid-conversation. Now:
+ *  - similarity = max(centroid, best exemplar) so a speaker's natural
+ *    variation (pitch, emotion, distance) is covered by several examples;
+ *  - only a piece with enough speech (`minCreateSeconds`) that matches
+ *    nobody (below `create`) may found a speaker, and that speaker stays
+ *    provisional until confirmed by more speech;
+ *  - short pieces never found anything: they join their best match above
+ *    `weak`, else take the caller's fallback (turn continuity);
+ *  - centroids move only on confident matches, so drift is slow.
+ * `labelMany` assigns several embeddings from one segment one-to-one
+ * (two local speakers can never share a letter).
  */
 export class SpeakerRegistry {
-  private readonly speakers: Array<{ label: string; mean: Float32Array; n: number }> = [];
-  private readonly threshold: number;
-  private readonly maxSpeakers: number;
-  private readonly meanWindow: number;
+  private readonly speakers: SpeakerEntry[] = [];
+  private nextLabel = 0;
+  private readonly o: Required<SpeakerRegistryOptions>;
+  private _overflow = 0;
+  private _last: string | undefined;
 
   constructor(options: SpeakerRegistryOptions = {}) {
-    this.threshold = options.threshold ?? 0.45;
-    this.maxSpeakers = Math.min(SPEAKER_LABELS.length, options.maxSpeakers ?? SPEAKER_LABELS.length);
-    this.meanWindow = options.meanWindow ?? 20;
+    this.o = {
+      match: DEFAULT_REGISTRY_THRESHOLDS.match,
+      create: DEFAULT_REGISTRY_THRESHOLDS.create,
+      weak: DEFAULT_REGISTRY_THRESHOLDS.weak,
+      maxSpeakers: 6,
+      exemplars: 8,
+      minCreateSeconds: 2.0,
+      confirmSeconds: 3.0,
+      confirmPieces: 2,
+      provisionalTtlMs: 60_000,
+      now: () => Date.now(),
+      ...options,
+    };
+    this.o.maxSpeakers = Math.min(SPEAKER_LABELS.length, this.o.maxSpeakers);
   }
 
+  /** Active speakers (confirmed + provisional). */
   get size(): number {
     return this.speakers.length;
   }
 
-  /** Label for this embedding, learning it as a new speaker when nobody matches. */
-  label(embedding: Float32Array): string {
-    const v = normalize(embedding);
-    let best = -1;
-    let bestSim = -Infinity;
-    this.speakers.forEach((s, i) => {
-      const sim = dot(s.mean, v);
-      if (sim > bestSim) {
-        bestSim = sim;
-        best = i;
-      }
-    });
-    if (best >= 0 && (bestSim >= this.threshold || this.speakers.length >= this.maxSpeakers)) {
-      const s = this.speakers[best]!;
-      const n = Math.min(s.n, this.meanWindow);
-      for (let i = 0; i < s.mean.length; i++) s.mean[i] = (s.mean[i]! * n + v[i]!) / (n + 1);
-      s.mean = normalize(s.mean);
-      s.n += 1;
-      return s.label;
+  /** Times a piece had to be forced onto the nearest speaker because the registry was full. */
+  get overflow(): number {
+    return this._overflow;
+  }
+
+  /** Label assigned most recently (turn-taking prior for unlabeled short pieces). */
+  get lastLabel(): string | undefined {
+    return this._last;
+  }
+
+  labels(): Array<{ label: string; confirmed: boolean; seconds: number }> {
+    return this.speakers.map((s) => ({ label: s.label, confirmed: s.confirmed, seconds: Math.round(s.seconds * 10) / 10 }));
+  }
+
+  label(embedding: Float32Array, ctx: LabelContext): string | undefined {
+    return this.labelMany([{ embedding, ...ctx }])[0];
+  }
+
+  /**
+   * Assign labels to several embeddings from the same segment, one-to-one:
+   * pairs are taken best-similarity-first, each speaker at most once. Items
+   * left over may found new speakers (long ones) or fall back (short ones).
+   */
+  labelMany(items: Array<{ embedding: Float32Array; seconds: number; fallback?: string }>): Array<string | undefined> {
+    const now = this.o.now();
+    this.retireStale(now);
+    const vs = items.map((it) => normalize(it.embedding));
+    const out: Array<string | undefined> = new Array(items.length).fill(undefined);
+    const taken = new Set<number>();
+    const done = new Set<number>();
+    // All (item, speaker) similarities, best first.
+    const pairs: Array<{ i: number; s: number; sim: number }> = [];
+    vs.forEach((v, i) => this.speakers.forEach((sp, s) => pairs.push({ i, s, sim: this.similarity(sp, v) })));
+    pairs.sort((a, b) => b.sim - a.sim);
+    const bestSim = new Map<number, number>();
+    for (const p of pairs) if (!bestSim.has(p.i)) bestSim.set(p.i, p.sim);
+    for (const p of pairs) {
+      if (done.has(p.i) || taken.has(p.s)) continue;
+      const it = items[p.i]!;
+      const short = it.seconds < this.o.minCreateSeconds;
+      const accept = p.sim >= this.o.match || (short && p.sim >= this.o.weak);
+      if (!accept) continue;
+      const sp = this.speakers[p.s]!;
+      this.absorb(sp, vs[p.i]!, it.seconds, p.sim, now);
+      out[p.i] = sp.label;
+      done.add(p.i);
+      taken.add(p.s);
     }
-    const label = SPEAKER_LABELS[this.speakers.length]!;
-    this.speakers.push({ label, mean: v, n: 1 });
-    return label;
+    // Leftovers, longest first (the most reliable evidence founds speakers first).
+    const rest = items.map((it, i) => ({ it, i })).filter(({ i }) => !done.has(i)).sort((a, b) => b.it.seconds - a.it.seconds);
+    for (const { it, i } of rest) {
+      const v = vs[i]!;
+      const best = bestSim.get(i) ?? -Infinity;
+      const long = it.seconds >= this.o.minCreateSeconds;
+      // Re-rank against speakers not taken by this segment.
+      const free = this.speakers.map((sp, s) => ({ s, sim: taken.has(s) ? -Infinity : this.similarity(sp, v) })).sort((a, b) => b.sim - a.sim)[0];
+      if (long && best < this.o.create && this.speakers.length < this.o.maxSpeakers && this.nextLabel < SPEAKER_LABELS.length) {
+        const label = SPEAKER_LABELS[this.nextLabel++]!;
+        this.speakers.push({ label, centroid: v, exemplars: [v], seconds: it.seconds, pieces: 1, confirmed: false, createdAt: now });
+        out[i] = label;
+        taken.add(this.speakers.length - 1);
+        continue;
+      }
+      if (free !== undefined && free.sim > -Infinity && (long || free.sim >= this.o.weak)) {
+        // Long but ambiguous (between create and match), or the registry is full: nearest free speaker, no learning.
+        if (this.speakers.length >= this.o.maxSpeakers && best < this.o.match) this._overflow += 1;
+        out[i] = this.speakers[free.s]!.label;
+        taken.add(free.s);
+        continue;
+      }
+      out[i] = it.fallback;
+    }
+    for (const l of out) if (l !== undefined) this._last = l;
+    return out;
+  }
+
+  private similarity(sp: SpeakerEntry, v: Float32Array): number {
+    let best = dot(sp.centroid, v);
+    for (const e of sp.exemplars) best = Math.max(best, dot(e, v));
+    return best;
+  }
+
+  /** Learn from a confident match; count speech toward confirmation. */
+  private absorb(sp: SpeakerEntry, v: Float32Array, seconds: number, sim: number, now: number): void {
+    sp.seconds += seconds;
+    sp.pieces += 1;
+    if (!sp.confirmed && sp.seconds >= this.o.confirmSeconds && sp.pieces >= this.o.confirmPieces) sp.confirmed = true;
+    if (sim < this.o.match + 0.1 || seconds < 1.0) return; // weak or tiny evidence never moves the model
+    const a = 0.1;
+    for (let i = 0; i < sp.centroid.length; i++) sp.centroid[i] = sp.centroid[i]! * (1 - a) + v[i]! * a;
+    sp.centroid = normalize(sp.centroid);
+    sp.exemplars.push(v);
+    while (sp.exemplars.length > this.o.exemplars) sp.exemplars.shift();
+    void now;
+  }
+
+  private retireStale(now: number): void {
+    for (let i = this.speakers.length - 1; i >= 0; i--) {
+      const sp = this.speakers[i]!;
+      if (!sp.confirmed && now - sp.createdAt > this.o.provisionalTtlMs) this.speakers.splice(i, 1);
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 import {
   AUDIO_FORMAT,
   MAX_AUDIO_FRAME_BYTES,
+  DENOISER_NAMES,
   OVERLAP_MODES,
   PROTOCOL_VERSION,
   type AsrInfo,
@@ -8,6 +9,7 @@ import {
   type ClientMessage,
   type ServerMessage,
   type SessionMetricsMessage,
+  type DenoiserName,
   type OverlapMode,
   type SessionOptions,
   type TranscriptMessage,
@@ -129,6 +131,10 @@ function validateOptions(value: unknown): ParseResult<SessionOptions> {
     if (!OVERLAP_MODES.includes(value['overlap'] as OverlapMode)) return { ok: false, error: `options.overlap must be one of ${OVERLAP_MODES.join('|')}` };
     options.overlap = value['overlap'] as OverlapMode;
   }
+  if (value['denoiser'] !== undefined) {
+    if (!DENOISER_NAMES.includes(value['denoiser'] as DenoiserName)) return { ok: false, error: `options.denoiser must be one of ${DENOISER_NAMES.join('|')}` };
+    options.denoiser = value['denoiser'] as DenoiserName;
+  }
   return { ok: true, message: options };
 }
 
@@ -148,6 +154,14 @@ function validateAsrInfo(value: unknown): ParseResult<AsrInfo> {
     if (value[key] === undefined) continue;
     if (typeof value[key] !== 'boolean') return { ok: false, error: `asr.${key} must be a boolean` };
     info[key] = value[key];
+  }
+  if (value['denoiser'] !== undefined) {
+    if (!DENOISER_NAMES.includes(value['denoiser'] as DenoiserName)) return { ok: false, error: 'asr.denoiser is not a known denoiser' };
+    info.denoiser = value['denoiser'] as DenoiserName;
+  }
+  if (value['speakerModel'] !== undefined) {
+    if (!isNonEmptyString(value['speakerModel'])) return { ok: false, error: 'asr.speakerModel must be a non-empty string' };
+    info.speakerModel = value['speakerModel'];
   }
   return { ok: true, message: info };
 }

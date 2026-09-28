@@ -5,7 +5,7 @@
  * the shape.
  */
 
-import { OVERLAP_MODES, type OverlapMode } from '@lst/protocol';
+import { OVERLAP_MODES, type DenoiserName, type OverlapMode } from '@lst/protocol';
 
 export const SETTINGS_VERSION = 1 as const;
 export const SETTINGS_STORAGE_KEY = 'settings';
@@ -94,6 +94,8 @@ export interface Settings {
   sessionLimitHours: number;
   /** Multi-voice handling (0.2.0), all off by default; applies on next start. */
   denoise: boolean;
+  /** Denoiser strength (0.3.0): auto = backend default, light = GTCRN, medium/strong = DPDFNet (more CPU). */
+  denoiseStrength: DenoiseStrength;
   diarize: boolean;
   overlap: OverlapMode;
   /** WebSocket URL of the backend (default: local). A LAN backend needs an optional host permission. */
@@ -102,6 +104,18 @@ export interface Settings {
 }
 
 export const DEFAULT_BACKEND_URL = 'ws://127.0.0.1:8787/ws';
+
+export type DenoiseStrength = 'auto' | 'light' | 'medium' | 'strong';
+export const DENOISE_STRENGTHS: ReadonlyArray<{ code: DenoiseStrength; label: string; denoiser?: DenoiserName }> = [
+  { code: 'auto', label: '后端默认' },
+  { code: 'light', label: '轻（GTCRN，最省 CPU）', denoiser: 'gtcrn' },
+  { code: 'medium', label: '中（DPDFNet2）', denoiser: 'dpdfnet2' },
+  { code: 'strong', label: '强（DPDFNet8，最耗 CPU）', denoiser: 'dpdfnet8' },
+];
+/** Backend denoiser name for a strength choice; undefined = let the backend pick. */
+export function denoiserFor(strength: DenoiseStrength): DenoiserName | undefined {
+  return DENOISE_STRENGTHS.find((s) => s.code === strength)?.denoiser;
+}
 
 export const OVERLAP_CHOICES: ReadonlyArray<{ code: OverlapMode; label: string }> = [
   { code: 'mark', label: '标记「多人同时说话」' },
@@ -183,6 +197,7 @@ export const DEFAULT_SETTINGS: Settings = {
   translatePartials: false,
   sessionLimitHours: 3,
   denoise: false,
+  denoiseStrength: 'auto',
   diarize: false,
   overlap: 'mark',
   backendUrl: DEFAULT_BACKEND_URL,
@@ -214,6 +229,7 @@ export function normalizeSettings(raw: unknown): Settings {
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
     sessionLimitHours: SESSION_LIMIT_CHOICES.some((c) => c.hours === r['sessionLimitHours']) ? (r['sessionLimitHours'] as number) : DEFAULT_SETTINGS.sessionLimitHours,
     denoise: bool(r['denoise'], DEFAULT_SETTINGS.denoise),
+    denoiseStrength: DENOISE_STRENGTHS.some((s) => s.code === r['denoiseStrength']) ? (r['denoiseStrength'] as DenoiseStrength) : DEFAULT_SETTINGS.denoiseStrength,
     diarize: bool(r['diarize'], DEFAULT_SETTINGS.diarize),
     overlap: OVERLAP_MODES.includes(r['overlap'] as OverlapMode) ? (r['overlap'] as OverlapMode) : DEFAULT_SETTINGS.overlap,
     backendUrl: normalizeBackendUrl(r['backendUrl']) ?? DEFAULT_BACKEND_URL,

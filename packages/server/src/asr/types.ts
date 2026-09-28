@@ -1,4 +1,4 @@
-import type { OverlapMode, TranscriptStatus } from '@lst/protocol';
+import type { DenoiserName, OverlapMode, TranscriptStatus } from '@lst/protocol';
 
 /** One recognition result for a speech segment (no sessionId; the Session adds it). */
 export interface AsrTranscript {
@@ -30,6 +30,7 @@ export interface AsrStartOptions {
   sourceLanguage: string;
   /** Multi-voice options (protocol v6); adapters that cannot honour them ignore them. */
   denoise?: boolean;
+  denoiser?: DenoiserName;
   diarize?: boolean;
   overlap?: OverlapMode;
 }
@@ -47,7 +48,7 @@ export interface AsrAdapterEvents {
 export interface AsrAdapter {
   readonly provider: string;
   /** Resolves with what is actually active (a denoiser that failed to load reports denoise: false). */
-  start(options: AsrStartOptions): Promise<{ language: string; denoise?: boolean; diarize?: boolean }>;
+  start(options: AsrStartOptions): Promise<{ language: string; denoise?: boolean; diarize?: boolean; denoiser?: DenoiserName; speakerModel?: string }>;
   pushAudio(pcm: Int16Array): void;
   /** Flush pending speech (emit remaining finals) and release resources. Idempotent. */
   stop(): Promise<void>;

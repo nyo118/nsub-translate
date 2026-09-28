@@ -3,7 +3,7 @@ import type { ContentDetectResponse, OkResponse, PopupCapture, PopupToBackground
 import { detectPlatformFromUrl, type Platform } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
-import { DEFAULT_BACKEND_URL, DEFAULT_SETTINGS, FONT_FAMILIES, OVERLAP_CHOICES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, backendHealthUrl, backendPermissionOrigins, isLocalBackend, languageLabel, normalizeBackendUrl, normalizeSettings, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
+import { DEFAULT_BACKEND_URL, DEFAULT_SETTINGS, DENOISE_STRENGTHS, FONT_FAMILIES, OVERLAP_CHOICES, SESSION_LIMIT_CHOICES, SOURCE_LANGUAGES, STYLE_LIMITS, TARGET_LANGUAGES, TRANSLATION_ENGINES, backendHealthUrl, backendPermissionOrigins, isLocalBackend, languageLabel, normalizeBackendUrl, normalizeSettings, type DenoiseStrength, type FontFamilyChoice, type Settings, type SubtitleStyle, type TranslationEngine } from '../shared/settings.js';
 import type { OverlapMode } from '@lst/protocol';
 import { friendlyError } from '../shared/friendly-error.js';
 
@@ -354,6 +354,19 @@ export function App() {
         <label className="check subtle">
           <input type="checkbox" checked={settings.denoise} onChange={(e) => updateSettings({ denoise: e.target.checked })} /> 降噪（游戏音效或背景音乐盖住人声时开启；对干净人声略有损伤；下次开始时生效）
         </label>
+        {settings.denoise && (
+          <div className="field">
+            <label htmlFor="denoise-strength">降噪强度</label>
+            <select id="denoise-strength" value={settings.denoiseStrength} onChange={(e) => updateSettings({ denoiseStrength: e.target.value as DenoiseStrength })}>
+              {DENOISE_STRENGTHS.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <div className="field-hint">BGM / 音效仍干扰识别时选「中」或「强」；「强」在本机 Intel 上约占一个核心。</div>
+          </div>
+        )}
         <label className="check subtle">
           <input type="checkbox" checked={settings.diarize} onChange={(e) => updateSettings({ diarize: e.target.checked })} /> 区分说话人（多人对话时按说话人切句并标注 A / B；每句约多 0.3–0.5 s；下次开始时生效）
         </label>
@@ -400,7 +413,7 @@ export function App() {
                   ? '正在重新连接本地后端…'
                   : `识别 ${providerName(snapshot?.asr?.provider)} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
                       snapshot?.metrics ? ` · ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
-                    }${snapshot?.asr?.denoise ? ' · 降噪' : ''}${snapshot?.asr?.diarize ? ' · 分说话人' : ''}  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
+                    }${snapshot?.asr?.denoise ? ` · 降噪${snapshot.asr.denoiser ? `(${snapshot.asr.denoiser})` : ''}` : ''}${snapshot?.asr?.diarize ? ' · 分说话人' : ''}  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
                       snapshot?.metrics && snapshot.metrics.translated > 0 ? ` · ${(snapshot.metrics.avgTranslateMs / 1000).toFixed(1)} s` : ''
                     }${snapshot?.metrics && snapshot.metrics.translationBacklog > 1 ? ` · 排队 ${snapshot.metrics.translationBacklog}` : ''}`}
               </div>

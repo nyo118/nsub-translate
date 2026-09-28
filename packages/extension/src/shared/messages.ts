@@ -1,4 +1,4 @@
-import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from './platform.js';
 
 /**
@@ -87,6 +87,7 @@ export interface OffscreenStartRequest {
   translatePartials: boolean;
   translationProvider: string;
   denoise: boolean;
+  denoiser?: DenoiserName;
   diarize: boolean;
   overlap: OverlapMode;
   /** Auto-stop after this long (0 = never). Enforced by the offscreen document, which outlives the worker. */

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DENOISER_NAMES, type DenoiserName } from '@lst/protocol';
 
 export type AsrProviderName = 'sensevoice' | 'mock';
 export type TranslationProviderName = 'hy-mt2' | 'gemini' | 'llm' | 'google' | 'mock' | 'none';
@@ -40,6 +41,14 @@ export interface ServerConfig {
   logsDir: string | null;
   /** Fetch missing model files automatically (AUTO_DOWNLOAD_MODELS, default on). */
   autoDownloadModels: boolean;
+  /** Denoiser used when a session asks for `denoise` without naming one (ASR_DENOISER). */
+  denoiser: DenoiserName;
+  /** DPDFNet attenuation limit in dB (0 = unlimited); raise (e.g. 20) if voices sound muffled. */
+  denoiseAttenuationDb: number;
+  /** Speaker-embedding model file name inside MODELS_DIR (SPEAKER_EMBEDDING_MODEL); empty = default from models.lock. */
+  speakerEmbeddingModel: string;
+  /** SpeakerRegistry thresholds override (SPEAKER_THRESHOLDS="match,create,weak"); undefined = calibrated defaults. */
+  speakerThresholds?: { match: number; create: number; weak: number };
 }
 
 export function defaultLogsDir(): string {
@@ -90,5 +99,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     idleTimeoutMs: int(env['IDLE_TIMEOUT_MS'], 30_000, 0),
     logsDir: env['LOGS_DIR'] === 'off' ? null : env['LOGS_DIR'] ? path.resolve(env['LOGS_DIR']) : defaultLogsDir(),
     autoDownloadModels: !(env['AUTO_DOWNLOAD_MODELS'] === '0' || env['AUTO_DOWNLOAD_MODELS'] === 'false'),
+    denoiser: DENOISER_NAMES.includes(env['ASR_DENOISER'] as DenoiserName) ? (env['ASR_DENOISER'] as DenoiserName) : 'dpdfnet2',
+    denoiseAttenuationDb: int(env['ASR_DENOISE_ATTENUATION_DB'], 0, 0),
+    speakerEmbeddingModel: env['SPEAKER_EMBEDDING_MODEL'] ?? '',
+    ...(() => {
+      const parts = (env['SPEAKER_THRESHOLDS'] ?? '').split(',').map((x) => Number.parseFloat(x));
+      return parts.length === 3 && parts.every((x) => Number.isFinite(x)) ? { speakerThresholds: { match: parts[0]!, create: parts[1]!, weak: parts[2]! } } : {};
+    })(),
   };
 }

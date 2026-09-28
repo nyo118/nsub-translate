@@ -9,6 +9,7 @@ import type {
 import { detectPlatformFromUrl } from '../shared/platform.js';
 import { describeCaptureError } from '../shared/capture-error.js';
 import { SettingsStore } from '../shared/settings-store.js';
+import { denoiserFor } from '../shared/settings.js';
 
 /**
  * Real Chrome implementations of the SessionPorts. This file is the only
@@ -59,12 +60,14 @@ const settingsStore = new SettingsStore();
 export const chromePorts: SessionPorts = {
   async loadLanguages() {
     const s = await settingsStore.load();
+    const denoiser = denoiserFor(s.denoiseStrength);
     return {
       sourceLanguage: s.sourceLanguage,
       targetLanguage: s.targetLanguage,
       translatePartials: s.translatePartials,
       translationProvider: s.translationEngine,
       denoise: s.denoise,
+      ...(denoiser === undefined ? {} : { denoiser }),
       diarize: s.diarize,
       overlap: s.overlap,
       sessionLimitMs: Math.round(s.sessionLimitHours * 3_600_000),

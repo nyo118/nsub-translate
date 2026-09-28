@@ -148,7 +148,16 @@ type BootLog = { info: (o: Record<string, unknown>, m: string) => void; warn: (o
 export function createAsrFactory(config: ServerConfig, log: BootLog, models?: ModelManager): AsrAdapterFactory {
   return config.asrProvider === 'mock'
     ? createMockFactory(config.mockTickMs)
-    : createSherpaFactory({ modelsDir: config.modelsDir, numThreads: config.asrThreads, log, ...(models === undefined ? {} : { ensureModels: (group) => models.ensure(group) }) });
+    : createSherpaFactory({
+        modelsDir: config.modelsDir,
+        numThreads: config.asrThreads,
+        log,
+        defaultDenoiser: config.denoiser,
+        denoiseAttenuationDb: config.denoiseAttenuationDb,
+        speakerEmbeddingModel: config.speakerEmbeddingModel,
+        ...(config.speakerThresholds === undefined ? {} : { speakerThresholds: config.speakerThresholds }),
+        ...(models === undefined ? {} : { ensureModels: (group) => models.ensure(group) }),
+      });
 }
 
 /**

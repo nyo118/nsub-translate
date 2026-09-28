@@ -235,6 +235,24 @@
 | V-4 | 本机后端开「区分说话人」 | popup 出现 CPU 提示；识别延迟上升但不崩 |
 | V-5 | 删除 `packages/server/models/gtcrn_simple.onnx` 后开降噪开始 | 后端自动下载后启动；`AUTO_DOWNLOAD_MODELS=0` 时报错说明缺哪个模型 |
 
+## 0.3.0 增补（标签稳定 + DPDFNet 降噪）
+
+### 自动化
+| 项 | 覆盖 |
+|---|---|
+| `speaker-split.test.ts`（registry） | 长片段才建人、短碎片归入/继承/无标签、A→B→A+C 保持 A、同段一对一、临时身份 TTL 回收且字母不复用、满员溢出计数、置信更新不漂移 |
+| `voices.integration.test.ts` | 新增「en 前半 → zh → en 后半 + ja 叠加 → en 后半」：英语 final 前后同一字母且 ≠ zh 的字母；`denoiser: 'dpdfnet2'` 按会话选择并在 `started` 回报 |
+| `validate.test.ts` | v7 `options.denoiser` 合法值 / 非法值 |
+| `scripts/speaker-calib.mjs [--sim]` | 4 个声纹模型在 16 位说话人公开样本上的 EER、阈值建议、对话模拟纯度 / 碎片率 / A→B→A 保持率（`BENCHMARKS.md`） |
+| `scripts/bench.mjs --clip conv --diarize --show-text` / `--clip bgm --denoiser …` | 8 人对话标签 vs 真值；四种降噪模型对比 |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| V-6 | 双人播客，开「区分说话人」，看 10 分钟 | 两人始终 A / B；抢话段后原说话人字母不变 |
+| V-7 | 三人以上访谈 | 出现 C / D，但不会有人「变字母」；popup 状态行显示声纹模型 |
+| V-8 | 游戏直播开「降噪」，强度依次 轻 / 中 / 强 | 中、强明显减少音效误识别；强在本机 Intel 识别延迟上升但不掉句 |
+
 ## 结果记录
 
 每次交付报告里按「passed / failed / blocked / not-run」逐项记录，不得把未执行的项写成通过。

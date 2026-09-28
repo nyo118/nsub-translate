@@ -12,6 +12,10 @@
 | `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_RPM` | — / `gemini-3.5-flash-lite` / `12` | AI Studio |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_RPM` | — / — / — / `0`(不限) | 任意 OpenAI 兼容端点；裸主机自动补 `/v1` |
 | `GOOGLE_TRANSLATE_API_KEY` | — | Google Cloud Translation |
+| `ASR_DENOISER` | `dpdfnet2` | 会话开了「降噪」但未指定强度时用的模型：`gtcrn`（轻，RTF≈0.09）\| `dpdfnet2`（中，≈0.21）\| `dpdfnet4`（≈0.33）\| `dpdfnet8`（强，≈0.57，Intel 2018 单线程实测） |
+| `ASR_DENOISE_ATTENUATION_DB` | `0` | DPDFNet 最大衰减（dB），0 = 不限；人声被压闷时可设 20–30 |
+| `SPEAKER_EMBEDDING_MODEL` | lock 中的 CAM++ zh/en | 声纹模型文件名（相对 `MODELS_DIR`），对比其他模型时用 |
+| `SPEAKER_THRESHOLDS` | `0.20,0.35,0.23` | `SpeakerRegistry` 的 match / create / weak 余弦阈值（`scripts/speaker-calib.mjs` 给出建议值）；换声纹模型时需重新校准 |
 | `MODELS_DIR` | `packages/server/models` | 模型目录。`models.lock.json` 分四组：`asr`（启动时必需）、`translation`（本机 Hy-MT2）、`enhance`（降噪）、`diarization`（说话人分离），后三组在首次使用时按需下载；`npm run models:download -- --group <组>` 可预下载 |
 | `AUTO_DOWNLOAD_MODELS` | `1` | 缺失模型自动下载（按 `models.lock.json` 的 URL 与 SHA-256）；`0` 关闭 |
 | `LOGS_DIR` | `packages/server/logs` | 会话摘要与服务日志；`off` 关闭摘要文件 |
@@ -27,8 +31,9 @@
 | 来源 / 翻译成 | 自动检测 / 简体中文 | 下次开始 |
 | 翻译引擎 | 本机 Hy-MT2 | 下次开始 |
 | 边说边翻译 | 关 | 下次开始（翻译过慢时自动只翻整句） |
-| 降噪 | 关 | 下次开始；首次开启时后端下载 GTCRN 模型（0.5 MB） |
-| 区分说话人 | 关 | 下次开始；首次开启时后端下载 pyannote + 3D-Speaker 模型（约 46 MB）。本机后端时 popup 提示 CPU 负担 |
+| 降噪 | 关 | 下次开始；首次开启时后端下载降噪模型组（GTCRN 0.5 MB + DPDFNet2/4/8 约 36 MB） |
+| 降噪强度 | 后端默认 | 只在「降噪」开启时显示：轻（GTCRN）/ 中（DPDFNet2）/ 强（DPDFNet8）；「后端默认」= 那台后端的 `ASR_DENOISER` |
+| 区分说话人 | 关 | 下次开始；首次开启时后端下载 pyannote + 3D-Speaker CAM++ zh/en 模型（约 30 MB）。本机后端时 popup 提示 CPU 负担 |
 | 多人同时说话时 | 标记 | 下次开始；`标记` / `跳过` / `照常识别`，只在「区分说话人」开启时有效 |
 | 会话上限 | 3 小时 | 下次开始 |
 | 后端地址（诊断区） | `ws://127.0.0.1:8787/ws` | 点「应用」后立即用于状态检查；会话在下次开始时切换。非本机地址会向 Chrome 申请该地址的访问权限（`optional_host_permissions`） |

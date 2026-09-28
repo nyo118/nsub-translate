@@ -1,4 +1,4 @@
-import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { Platform } from '../shared/platform.js';
 import type { ReleasedResources, SessionSnapshot, SessionStatus } from '../shared/messages.js';
 
@@ -34,6 +34,7 @@ export interface StartSettings {
   translatePartials: boolean;
   translationProvider: string;
   denoise: boolean;
+  denoiser?: DenoiserName;
   diarize: boolean;
   overlap: OverlapMode;
 }

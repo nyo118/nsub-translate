@@ -1,11 +1,11 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { OVERLAP_PLACEHOLDER, type OverlapMode } from '@lst/protocol';
+import { OVERLAP_PLACEHOLDER, type DenoiserName, type OverlapMode } from '@lst/protocol';
 import { Segmenter, type Recognizer, type SegmentSplitter, type SplitPiece, type VadSegment, type VoiceActivityDetector } from './segmenter.js';
 import { normalizeDetectedLanguage, type SenseVoiceLanguage } from './languages.js';
 import type { WorkerInbound, WorkerOutbound } from './sherpa-messages.js';
-import { SpeakerRegistry, splitBySpeaker, type DiarizationSegment } from './speaker-split.js';
+import { SpeakerRegistry, splitBySpeaker, type DiarizationSegment, type RawPiece } from './speaker-split.js';
 
 /**
  * Worker thread that owns the native sherpa-onnx objects. Recognition is
@@ -17,9 +17,12 @@ interface WorkerInit {
   modelDir: string;
   vadModel: string;
   /** Optional models (may not exist on disk until the feature is first used). */
-  denoiserModel: string;
+  denoiserModels: Record<DenoiserName, string>;
+  denoiseAttenuationDb: number;
   segmentationModel: string;
   embeddingModel: string;
+  embeddingModelName: string;
+  speakerThresholds: { match: number; create: number; weak: number } | null;
   numThreads: number;
 }
 
@@ -106,20 +109,32 @@ function createVad(): VoiceActivityDetector {
 // ---------------------------------------------------------------------------
 
 interface Denoiser {
+  name: DenoiserName;
   run(samples: Float32Array): Float32Array;
   flush(): Float32Array;
+  reset(): void;
 }
 
-let denoiser: Denoiser | null = null;
+const denoisers = new Map<DenoiserName, Denoiser>();
 
-/** GTCRN streaming denoiser: 16 kHz in, 16 kHz out, a few ms of internal buffering. */
-function getDenoiser(): Denoiser {
-  if (denoiser !== null) return denoiser;
-  const native = new sherpa.OnlineSpeechDenoiser({ model: { gtcrn: { model: init.denoiserModel }, numThreads: 1, provider: 'cpu', debug: 0 } });
-  denoiser = {
+/**
+ * Streaming denoisers (16 kHz in / out, ≤ 20 ms internal buffering):
+ * gtcrn — 0.5 MB, RTF ≈ 0.09 on a 2018 Intel laptop, light touch;
+ * dpdfnet2 / 4 / 8 — DeepFilterNet-style, 10–15 MB, RTF ≈ 0.21 / 0.33 / 0.57, much stronger on music and effects.
+ */
+function getDenoiser(name: DenoiserName): Denoiser {
+  const cached = denoisers.get(name);
+  if (cached) return cached;
+  const file = init.denoiserModels[name];
+  const model = name === 'gtcrn' ? { gtcrn: { model: file } } : { dpdfnet: { model: file, attenuationLimitDb: init.denoiseAttenuationDb } };
+  const native = new sherpa.OnlineSpeechDenoiser({ model: { ...model, numThreads: 1, provider: 'cpu', debug: 0 } });
+  const denoiser: Denoiser = {
+    name,
     run: (samples) => (native.run({ samples, sampleRate: SAMPLE_RATE }) as { samples: Float32Array }).samples,
     flush: () => (native.flush() as { samples: Float32Array }).samples,
+    reset: () => native.reset(),
   };
+  denoisers.set(name, denoiser);
   return denoiser;
 }
 
@@ -159,30 +174,58 @@ function getDiarizer(): Diarizer {
  */
 function createSpeakerSplitter(overlap: OverlapMode): SegmentSplitter {
   const d = getDiarizer();
-  const registry = new SpeakerRegistry();
+  const registry = new SpeakerRegistry(init.speakerThresholds ?? {});
   return (samples) => {
     if (samples.length < MIN_DIARIZE_SAMPLES) return null;
     try {
       const raw = splitBySpeaker(d.process(samples), samples.length, { sampleRate: SAMPLE_RATE });
-      const labels = new Map<number, string>(); // diarizer-local id → session label, per segment
+      // One embedding per diarizer-local speaker over *all* of their solo audio in this
+      // segment (longer and cleaner than the first piece), then a one-to-one assignment
+      // so two people in the same segment can never get the same letter.
+      const groups = new Map<number, RawPiece[]>();
+      raw.filter((p) => !p.overlap).forEach((p, i) => {
+        const key = p.localSpeaker >= 0 ? p.localSpeaker : -1 - i; // undetected pieces stay separate
+        groups.set(key, [...(groups.get(key) ?? []), p]);
+      });
+      const keys = [...groups.keys()];
+      // A short piece that matches nobody gets *no* letter rather than the previous
+      // speaker's: in the conversation bench, inheriting made a newcomer's first short
+      // utterance wear the last speaker's letter. Continuity inside a segment is already
+      // handled by grouping on the diarizer's local speaker id.
+      const fallback: string | undefined = undefined;
+      const items = keys.map((k) => {
+        const parts = groups.get(k)!;
+        const total = parts.reduce((n, p) => n + p.length, 0);
+        const audio = new Float32Array(total);
+        let off = 0;
+        for (const p of parts) {
+          audio.set(samples.subarray(p.offset, p.offset + p.length), off);
+          off += p.length;
+        }
+        return { embedding: total >= MIN_EMBED_SAMPLES ? d.embed(audio) : null, seconds: total / SAMPLE_RATE };
+      });
+      const labeled = registry.labelMany(
+        items.filter((it) => it.embedding !== null).map((it) => ({ embedding: it.embedding!, seconds: it.seconds, ...(fallback === undefined ? {} : { fallback }) })),
+      );
+      const labelOf = new Map<number, string | undefined>();
+      let li = 0;
+      keys.forEach((k, i) => {
+        labelOf.set(k, items[i]!.embedding === null ? fallback : labeled[li++]);
+      });
       const pieces: SplitPiece[] = [];
-      for (const p of raw) {
+      raw.forEach((p, i) => {
         if (p.overlap) {
-          if (overlap === 'skip') continue;
+          if (overlap === 'skip') return;
           const piece: SplitPiece = { offset: p.offset, length: p.length, overlap: true };
           if (overlap === 'mark') piece.text = OVERLAP_PLACEHOLDER;
           pieces.push(piece);
-          continue;
+          return;
         }
         const piece: SplitPiece = { offset: p.offset, length: p.length };
-        let label = labels.get(p.localSpeaker);
-        if (label === undefined && p.length >= MIN_EMBED_SAMPLES) {
-          label = registry.label(d.embed(samples.subarray(p.offset, p.offset + p.length)));
-          if (p.localSpeaker >= 0) labels.set(p.localSpeaker, label);
-        }
+        const label = labelOf.get(p.localSpeaker >= 0 ? p.localSpeaker : -1 - i);
         if (label !== undefined) piece.speaker = label;
         pieces.push(piece);
-      }
+      });
       return pieces;
     } catch (err) {
       console.warn('[asr] speaker split failed; decoding segment whole', err instanceof Error ? err.message : err);
@@ -191,7 +234,7 @@ function createSpeakerSplitter(overlap: OverlapMode): SegmentSplitter {
   };
 }
 
-let active: { sessionId: string; segmenter: Segmenter; partialsPaused: boolean; denoise: boolean } | null = null;
+let active: { sessionId: string; segmenter: Segmenter; partialsPaused: boolean; denoiser: Denoiser | null } | null = null;
 
 function handle(message: WorkerInbound): void {
   switch (message.t) {
@@ -207,13 +250,13 @@ function handle(message: WorkerInbound): void {
       const recognizer = getRecognizer(message.language);
       // Optional front-ends degrade gracefully: a model that fails to load
       // disables the feature (reported in `started`) instead of the session.
-      let denoise = false;
+      let denoiser: Denoiser | null = null;
       if (message.denoise) {
         try {
-          getDenoiser();
-          denoise = true;
+          denoiser = getDenoiser(message.denoiser);
+          denoiser.reset();
         } catch (err) {
-          console.warn('[asr] denoiser unavailable, continuing without it:', err instanceof Error ? err.message : err);
+          console.warn(`[asr] denoiser ${message.denoiser} unavailable, continuing without it:`, err instanceof Error ? err.message : err);
         }
       }
       let splitter: SegmentSplitter | undefined;
@@ -232,8 +275,16 @@ function handle(message: WorkerInbound): void {
         onMetrics: (sample) => post({ t: 'metrics', sessionId: message.sessionId, sample }),
         ...(splitter === undefined ? {} : { splitter }),
       });
-      active = { sessionId: message.sessionId, segmenter, partialsPaused: false, denoise };
-      post({ t: 'started', sessionId: message.sessionId, language: message.language, denoise, diarize: splitter !== undefined });
+      active = { sessionId: message.sessionId, segmenter, partialsPaused: false, denoiser };
+      post({
+        t: 'started',
+        sessionId: message.sessionId,
+        language: message.language,
+        denoise: denoiser !== null,
+        diarize: splitter !== undefined,
+        ...(denoiser === null ? {} : { denoiser: denoiser.name }),
+        ...(splitter === undefined ? {} : { speakerModel: init.embeddingModelName }),
+      });
       return;
     }
     case 'audio': {
@@ -252,7 +303,7 @@ function handle(message: WorkerInbound): void {
       for (let i = 0; i < pcm.length; i++) f32[i] = (pcm[i] ?? 0) / 32768;
       // The denoiser buffers a few frames internally (< 20 ms), so the sample
       // clock drifts by at most that much; nothing is dropped.
-      active.segmenter.push(active.denoise ? getDenoiser().run(f32) : f32);
+      active.segmenter.push(active.denoiser !== null ? active.denoiser.run(f32) : f32);
       return;
     }
     case 'stop': {
@@ -260,9 +311,9 @@ function handle(message: WorkerInbound): void {
         post({ t: 'stopped', sessionId: message.sessionId });
         return;
       }
-      const { segmenter, sessionId, denoise } = active;
+      const { segmenter, sessionId, denoiser } = active;
       active = null;
-      if (denoise) segmenter.push(getDenoiser().flush());
+      if (denoiser !== null) segmenter.push(denoiser.flush());
       segmenter.flush();
       post({ t: 'stopped', sessionId });
       return;

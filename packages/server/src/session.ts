@@ -1,4 +1,4 @@
-import type { AsrInfo, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
 import type { AsrAdapter } from './asr/types.js';
 import type { TranslationAdapter } from './translation/types.js';
 import { TranslationPipeline } from './translation/pipeline.js';
@@ -14,6 +14,7 @@ export interface SessionOptions {
   translatePartials?: boolean;
   /** Multi-voice options (protocol v6). */
   denoise?: boolean;
+  denoiser?: DenoiserName;
   diarize?: boolean;
   overlap?: OverlapMode;
   send: (message: TranscriptMessage | SessionMetricsMessage) => void;
@@ -48,8 +49,8 @@ export class Session {
   private startedAtMs = 0;
   private endedAtMs = 0;
   private readonly translatePartials: boolean;
-  private readonly voiceOptions: { denoise: boolean; diarize: boolean; overlap: OverlapMode };
-  private asrFeatures: { denoise?: boolean; diarize?: boolean } = {};
+  private readonly voiceOptions: { denoise: boolean; denoiser?: DenoiserName; diarize: boolean; overlap: OverlapMode };
+  private asrFeatures: { denoise?: boolean; diarize?: boolean; denoiser?: DenoiserName; speakerModel?: string } = {};
   private readonly send: SessionOptions['send'];
   private readonly onError: SessionOptions['onError'];
   private readonly metricsIntervalMs: number;
@@ -85,7 +86,7 @@ export class Session {
       },
     });
     this.translatePartials = options.translatePartials ?? false;
-    this.voiceOptions = { denoise: options.denoise ?? false, diarize: options.diarize ?? false, overlap: options.overlap ?? 'mark' };
+    this.voiceOptions = { denoise: options.denoise ?? false, diarize: options.diarize ?? false, overlap: options.overlap ?? 'mark', ...(options.denoiser === undefined ? {} : { denoiser: options.denoiser }) };
     this.onError = options.onError;
     this.metricsIntervalMs = options.metricsIntervalMs ?? 5000;
     this.now = options.now ?? (() => Date.now());
@@ -128,6 +129,8 @@ export class Session {
       this.asrLanguage = started.language;
       if (started.denoise !== undefined) this.asrFeatures.denoise = started.denoise;
       if (started.diarize !== undefined) this.asrFeatures.diarize = started.diarize;
+      if (started.denoiser !== undefined) this.asrFeatures.denoiser = started.denoiser;
+      if (started.speakerModel !== undefined) this.asrFeatures.speakerModel = started.speakerModel;
     } catch (err) {
       this._state = 'stopped';
       throw err;

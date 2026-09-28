@@ -5,7 +5,14 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 6 as const;
+export const PROTOCOL_VERSION = 7 as const;
+
+/**
+ * v7 (0.3.0): `session.start.options.denoiser` picks the speech-enhancement
+ * model (`gtcrn` light, `dpdfnet2` / `dpdfnet4` / `dpdfnet8` stronger and
+ * slower); omitted = backend default. `session.ready.asr.denoiser` and
+ * `session.ready.asr.speakerModel` report what is actually running.
+ */
 
 /**
  * v6 (0.2.0): multi-voice options in `session.start.options` — `denoise`
@@ -56,8 +63,10 @@ export interface SessionOptions {
   translatePartials: boolean;
   /** Translation engine name known to the backend (e.g. "hy-mt2", "google"); omitted = backend default. */
   translationProvider?: string;
-  /** Run the speech denoiser (GTCRN) before recognition — for game/BGM audio. Default false. */
+  /** Run a speech denoiser before recognition — for game/BGM audio. Default false. */
   denoise?: boolean;
+  /** Which denoiser (needs `denoise`); omitted = backend default (ASR_DENOISER). */
+  denoiser?: DenoiserName;
   /** Split each segment by speaker and label transcripts "A", "B", …. Default false. */
   diarize?: boolean;
   /**
@@ -67,6 +76,9 @@ export interface SessionOptions {
    */
   overlap?: OverlapMode;
 }
+
+export type DenoiserName = 'gtcrn' | 'dpdfnet2' | 'dpdfnet4' | 'dpdfnet8';
+export const DENOISER_NAMES: readonly DenoiserName[] = ['gtcrn', 'dpdfnet2', 'dpdfnet4', 'dpdfnet8'];
 
 export type OverlapMode = 'mark' | 'skip' | 'recognize';
 export const OVERLAP_MODES: readonly OverlapMode[] = ['mark', 'skip', 'recognize'];
@@ -106,6 +118,9 @@ export interface AsrInfo {
   /** v6: whether the denoiser / speaker diarization are active for this session. */
   denoise?: boolean;
   diarize?: boolean;
+  /** v7: the denoiser model in use (when denoise) and the speaker-embedding model (when diarize). */
+  denoiser?: DenoiserName;
+  speakerModel?: string;
 }
 
 export interface TranslationInfo {

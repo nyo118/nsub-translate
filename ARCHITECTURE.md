@@ -67,25 +67,26 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **worker 崩溃**：`SherpaWorkerHost` 监听 `error/exit`，向活动会话发 `asr_failed`，下次会话重新起 worker。
 - **延迟指标**：`latencyMs` = 该次解码所用最新音频到达 worker 的时刻 → 结果发出；`decodeMs` = 纯解码耗时；`Session` 取最近 50 个样本均值，每 5 s 发一次。
 
-## 多声源处理（0.2.0，协议 v6）
+## 多声源处理（0.2.0，协议 v6；0.3.0 修订，协议 v7）
 
 ```
- audio 100 ms 帧 ─▶ [降噪 OnlineSpeechDenoiser(GTCRN)，可选] ─▶ Segmenter（VAD / partial / 软切分，不变）
+ audio 100 ms 帧 ─▶ [降噪 OnlineSpeechDenoiser(GTCRN | DPDFNet2/4/8)，可选] ─▶ Segmenter（VAD / partial / 软切分，不变）
                                                                      │ final 收句时，若开启区分说话人：
                                                                      │  splitter(samples)
-                                                                     │   ├─ OfflineSpeakerDiarization(pyannote seg-3.0 int8 + 3D-Speaker).process → [{start,end,speaker}]
+                                                                     │   ├─ OfflineSpeakerDiarization(pyannote seg-3.0 int8 + 3D-Speaker CAM++ zh/en).process → [{start,end,speaker}]
                                                                      │   ├─ speaker-split.ts splitBySpeaker：扫描线 → 单人片段 / 重叠片段；< 400 ms 的碎片并入邻居；静音归前一片
-                                                                     │   ├─ 每个单人片段（≥ 0.5 s）取声纹 → SpeakerRegistry（余弦 ≥ 0.45 复用标签，否则新建 A/B/C…，上限 6；每人保持滑动均值）
+                                                                     │   ├─ 同一本地说话人的全部单人音频拼接取一次声纹 → SpeakerRegistry.labelMany（校准阈值 + 只有 ≥ 2 s 才能建人 + 一对一分配，见下）
                                                                      │   └─ 重叠片段按 overlap 策略：mark → 预置文本「[多人同时说话]」不解码；skip → 丢弃；recognize → 解码并标记
                                                                      ▼
                                      每个片段一条 final：第一片沿用 segmentId（顶掉 partial），其余为 `segmentId-2/-3…`，带 speaker / overlap
 ```
 
 - **为什么在 final 才分离**：pyannote 是离线模型，需要整段音频；partial 仍按整段解码、不带说话人，final 到来时被第一片顶掉。每句额外成本 = 分割（约 60 ms/5 s）+ 每片声纹（约 200 ms）。
-- **稳定标签**：pyannote 每次调用独立聚类，编号只在段内有意义；跨段一致性由 `SpeakerRegistry`（纯 TS，可单测）负责。
+- **稳定标签**（0.3.0 重写）：pyannote 每次调用独立聚类，编号只在段内有意义；跨段一致性由 `SpeakerRegistry`（纯 TS，可单测）负责——每人 centroid + 8 个 exemplar 取最大余弦；三个校准阈值 `match / create / weak`（CAM++ zh/en：0.20 / 0.35 / 0.23）；只有 ≥ 2 s 且低于 `create` 的片段能新建（临时）说话人，累计 3 s 转正、60 s 未转正回收；短碎片 ≥ `weak` 归最像的人，否则不标字母（不继承上一位说话人）；同段多说话人 `labelMany` 一对一分配；centroid 只在高置信匹配时按 EMA 更新。worker 侧把同一本地说话人在段内的全部单人音频拼接后只算一次声纹。
+- **降噪模型**（0.3.0）：`OnlineSpeechDenoiser` 可选 GTCRN 或 DPDFNet2/4/8（`options.denoiser`，默认 `ASR_DENOISER=dpdfnet2`），每个会话 `reset()` 后复用实例。
 - **降级**：模型加载失败只关闭该功能（`session.ready.asr.denoise/diarize` 报 false，popup 提示），分离过程抛错则整段照常解码。
 - **翻译**：`TranslationPipeline` 透传 `speaker/overlap`；`[多人同时说话]` 占位段不进翻译队列。
-- **模型组**：`models.lock.json` 新增 `enhance`（gtcrn_simple.onnx）与 `diarization`（pyannote model.int8.onnx + 3dspeaker eres2net）；`SherpaAsrAdapter.start` 先经 `ModelManager.ensure(group)` 按需下载再启动。
+- **模型组**：`models.lock.json` 新增 `enhance`（gtcrn_simple.onnx + dpdfnet2/4/8.onnx）与 `diarization`（pyannote model.int8.onnx + 3dspeaker campplus zh_en advanced）；`SherpaAsrAdapter.start` 先经 `ModelManager.ensure(group)` 按需下载再启动。
 
 ## 发布与可复现性（Phase 7）
 
@@ -146,6 +147,7 @@ Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异�
 ```
 
 - **引擎选择**：`TranslationRegistry` 注册 `hy-mt2 / gemini / llm / google / none / mock`（`gemini` 与 `llm` 共用 `openai-compatible-adapter.ts`：system prompt + 前 2 句作为对话历史，429/5xx 重试一次；`hy-mt2` 使用 `preferredContextSize = 0` 以缩短 prefill），默认引擎（`TRANSLATION_PROVIDER`）启动时预加载，其余在首次被会话选用时才 `prepare()`（1 GB 模型只在需要时加载；准备失败不缓存，下次重试）。客户端通过 `session.start.options.translationProvider` 选择；未知或不可用 → `translation_unavailable`。
+- **协议 v7**（0.3.0）：`session.start.options.denoiser('gtcrn'|'dpdfnet2'|'dpdfnet4'|'dpdfnet8')`；`session.ready.asr.denoiser / speakerModel`。
 - **协议 v6**（0.2.0）：`session.start.options.denoise / diarize / overlap('mark'|'skip'|'recognize')`；`session.ready.asr.denoise / diarize`（实际生效状态）；`transcript.speaker`（"A"…）与 `transcript.overlap`。
 - **协议 v5**：`session.metrics` 增加 p95 与翻译覆盖率。
 - **协议 v4**：`session.start.options.translationProvider`。
