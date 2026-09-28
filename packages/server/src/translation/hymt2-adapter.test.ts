@@ -47,8 +47,10 @@ describe('Hy-MT2 factory without node-llama-cpp (optional dependency)', () => {
     expect(ensured).toBe(0);
   });
   it('importLlama wraps a missing package in the hint (protocol handler maps "translation model" to translation_unavailable)', async () => {
-    const { importLlama, LLAMA_MISSING_HINT } = await import('./llama-available.js');
-    // node-llama-cpp *is* installed in this repo; exercising the real failure needs the LM Studio setup path, so just check the hint text shape.
+    const { importLlama, isLlamaInstalled, resetLlamaInstalledCache, LLAMA_MISSING_HINT } = await import('./llama-available.js');
+    // node-llama-cpp *is* installed in this repo (exercising the real failure needs the LM Studio setup path).
+    resetLlamaInstalledCache();
+    expect(isLlamaInstalled()).toBe(true);
     expect(LLAMA_MISSING_HINT).toContain('LM Studio');
     expect(LLAMA_MISSING_HINT).toContain('setup:local-translation');
     expect(typeof importLlama).toBe('function');

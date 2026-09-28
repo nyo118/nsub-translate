@@ -18,7 +18,8 @@ let cached: boolean | null = null;
 export function isLlamaInstalled(): boolean {
   if (cached !== null) return cached;
   try {
-    createRequire(import.meta.url).resolve(`${LLAMA_PACKAGE}/package.json`);
+    // Bare specifier: the package's exports map does not expose package.json.
+    createRequire(import.meta.url).resolve(LLAMA_PACKAGE);
     cached = true;
   } catch {
     cached = false;
