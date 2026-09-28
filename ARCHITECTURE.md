@@ -151,6 +151,7 @@ Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异�
 - **协议 v4**：`session.start.options.translationProvider`。
 - **协议 v3**：`session.start.options.translatePartials`；`session.ready.translation{provider,targetLanguage}`；`session.metrics` 增加 `translated / avgTranslateMs / translationBacklog`；错误码 `translation_unavailable / translation_failed / unsupported_language`。
 - **为什么不用 worker**：node-llama-cpp 的推理在原生线程执行、JS API 为 async，不会阻塞事件循环；模型与 context 全局共享，`HyMt2Runtime.lock` 保证跨会话串行。
+- **node-llama-cpp 是可选依赖**（0.2.1）：`optionalDependencies`，源码不导入它的类型（`hymt2-adapter.ts` 声明所用 API 的最小接口），运行时经 `translation/llama-available.ts` 用变量说明符动态导入，缺失时 `hy-mt2.prepare()` 抛带提示的错误 → `translation_unavailable`；`/healthz.engines['hy-mt2']` 用 `isLlamaInstalled()` 报 `configured:false` + hint。LM Studio 机器用 `npm run setup -- --lm-studio`（`NODE_LLAMA_CPP_SKIP_DOWNLOAD=true`）。
 - **失败降级**：翻译连续失败 3 次 → `session.error translation_failed`，会话继续只出原文；ASR 失败才终止会话。
 - **模型选择**：官方 2-bit/1.25-bit GGUF 需要 llama.cpp PR #19357 的 STQ kernel（未合入），实测在 node-llama-cpp 3.21 上加载失败，故用官方标准量化（当前 Q4_K_M；Q6_K 实测慢 1.4 倍）。
 

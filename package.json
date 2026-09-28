@@ -1,6 +1,6 @@
 {
   "name": "live-subtitle-translator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Personal-use Chrome extension that overlays bilingual live subtitles on YouTube/Twitch videos (Phase 0: technical validation).",
@@ -24,6 +24,7 @@
     "models:download": "node scripts/download-models.mjs",
     "bench": "node scripts/bench.mjs",
     "setup": "node scripts/setup.mjs",
+    "setup:local-translation": "npm run check-node && npm ci && node scripts/download-models.mjs --group translation && npm run build",
     "models:verify": "node scripts/models-lock.mjs",
     "version:set": "node scripts/set-version.mjs",
     "release": "node scripts/release.mjs",

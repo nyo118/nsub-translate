@@ -39,6 +39,8 @@
 | 命令 | 作用 |
 |---|---|
 | `npm run setup` | 新机器一键：依赖 → 模型（校验）→ `.env` → 构建 |
+| `npm run setup -- --lm-studio` | 同上，但跳过 node-llama-cpp 二进制（`NODE_LLAMA_CPP_SKIP_DOWNLOAD=true`）、只下识别模型、`.env` 预填 `TRANSLATION_PROVIDER=llm` — 给只用 LM Studio / 云端引擎的机器 |
+| `npm run setup:local-translation` | 事后补装本机翻译：安装 node-llama-cpp + 下载 Hy-MT2 GGUF + 构建 |
 | `npm run start:server` / `dev:server` | 从 dist 启动 / 开发热重载 |
 | `npm run service:install|status|restart|uninstall` | macOS 登录自启（launchd） |
 | `npm run models:download` / `models:verify` | 下载并校验 / 只校验 |

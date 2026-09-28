@@ -61,7 +61,7 @@ execSync(`cp -R "${path.join(root, 'packages/protocol/dist')}" "${path.join(serv
 for (const f of ['packages/server/package.json', 'packages/server/.env.example', 'packages/protocol/package.json', 'package.json', 'package-lock.json', 'models.lock.json', '.nvmrc', 'scripts/check-node.mjs', 'scripts/download-models.mjs', 'scripts/models-lock.mjs', 'scripts/service.mjs']) {
   execSync(`cp "${path.join(root, f)}" "${path.join(serverStage, f)}"`);
 }
-writeFileSync(path.join(serverStage, 'BUILD.txt'), `nsub-translate server v${version}\ncommit ${commit}\nbuilt ${built}\nrun: nvm use && npm ci --omit=dev && npm run models:download && node packages/server/dist/index.js\n`);
+writeFileSync(path.join(serverStage, 'BUILD.txt'), `nsub-translate server v${version}\ncommit ${commit}\nbuilt ${built}\nrun (local Hy-MT2): nvm use && npm ci --omit=dev && npm run models:download && node packages/server/dist/index.js\nrun (LM Studio / cloud engines, no node-llama-cpp): nvm use && NODE_LLAMA_CPP_SKIP_DOWNLOAD=true npm ci --omit=dev && npm run models:download -- --group asr && node packages/server/dist/index.js\n`);
 const srvZip = `nsub-translate-server-v${version}.zip`;
 run('zip', ['-qr', '-X', path.join(out, srvZip), '.'], { cwd: serverStage });
 rmSync(serverStage, { recursive: true, force: true });

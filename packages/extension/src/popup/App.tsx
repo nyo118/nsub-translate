@@ -343,7 +343,9 @@ export function App() {
             ))}
           </select>
           <div className={`field-hint ${engineUnavailable ? 'warn' : ''}`}>
-            {engineUnavailable ? `后端未配置此引擎：${engineStatus?.hint ?? ''}` : TRANSLATION_ENGINES.find((e) => e.code === settings.translationEngine)?.hint}
+            {engineUnavailable
+              ? `后端未配置此引擎：${engineStatus?.hint ?? ''}${settings.translationEngine !== 'llm' && backend.kind === 'up' && backend.health.engines?.['llm']?.configured ? ' 此后端已配置「自定义 LLM（LM Studio 等）」，可直接改选。' : ''}`
+              : TRANSLATION_ENGINES.find((e) => e.code === settings.translationEngine)?.hint}
           </div>
         </div>
         <label className="check subtle">

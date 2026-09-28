@@ -4,6 +4,7 @@ import path from 'node:path';
 import { loadConfig } from './config.js';
 import { diagnoseSherpa } from './asr/sherpa-diagnose.js';
 import { DENOISER_MODEL_FILE, EMBEDDING_MODEL_FILE, SEGMENTATION_MODEL_FILE, SherpaWorkerHost } from './asr/sherpa-adapter.js';
+import { importLlama, isLlamaInstalled } from './translation/llama-available.js';
 import { HYMT2_MODEL_FILE } from './translation/hymt2-adapter.js';
 
 /**
@@ -36,18 +37,23 @@ for (const [label, file, hint] of [
   ['speaker embedding model (popup: 区分说话人)', EMBEDDING_MODEL_FILE, 'downloaded on first use'],
 ] as const) {
   const present = existsSync(path.join(config.modelsDir, file));
-  lines.push(`${ok(present)} ${label} ${file}${present ? '' : ` — ${hint}`}`);
+  lines.push(`${present ? '✓' : '○'} ${label} ${file}${present ? '' : ` — ${hint}`}`);
 }
 const mt = path.join(config.modelsDir, HYMT2_MODEL_FILE);
-lines.push(`${ok(existsSync(mt))} local translation model ${HYMT2_MODEL_FILE}${existsSync(mt) ? '' : ' — downloaded on first use of the hy-mt2 engine'}`);
+lines.push(`${existsSync(mt) ? '✓' : '○'} local translation model ${HYMT2_MODEL_FILE}${existsSync(mt) ? '' : ' — downloaded on first use of the hy-mt2 engine'}`);
 let llama = false;
-try {
-  await import('node-llama-cpp');
-  llama = true;
-} catch {
-  llama = false;
+if (isLlamaInstalled()) {
+  try {
+    await importLlama();
+    llama = true;
+  } catch {
+    llama = false;
+  }
 }
-lines.push(`${ok(llama)} node-llama-cpp native module${llama ? '' : ' — run: npm ci (root)'}`);
+// Optional: only a problem when this machine is supposed to translate locally.
+if (llama) lines.push(`✓ node-llama-cpp native module (local translation)`);
+else if (config.translationProvider === 'hy-mt2') lines.push(`✗ node-llama-cpp not installed but TRANSLATION_PROVIDER=hy-mt2 — run: npm run setup:local-translation (or set TRANSLATION_PROVIDER=llm for LM Studio)`);
+else lines.push(`○ node-llama-cpp not installed (optional; not needed with TRANSLATION_PROVIDER=${config.translationProvider}, e.g. LM Studio / Gemini)`);
 const envFile = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '.env');
 lines.push(`${ok(existsSync(envFile))} packages/server/.env ${existsSync(envFile) ? '(present)' : '(absent — copy .env.example if you use cloud engines)'}`);
 lines.push(`   engines: default=${config.translationProvider}, gemini key ${ok(!!config.geminiApiKey)}, llm ${ok(!!(config.llmBaseUrl && config.llmModel))}, google key ${ok(!!config.googleTranslateApiKey)}`);

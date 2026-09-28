@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { Llama, LlamaChatSession, LlamaContext, LlamaModel } from 'node-llama-cpp';
+import { importLlama } from './llama-available.js';
 import type { TranslationAdapter, TranslationAdapterFactory, TranslationRequest } from './types.js';
 import { TARGET_NAMES, cleanOutput } from './text-utils.js';
 
@@ -22,6 +22,32 @@ export { cleanOutput } from './text-utils.js';
  */
 export const HYMT2_MODEL_FILE = 'Hy-MT2-1.8B-Q4_K_M.gguf';
 
+/**
+ * The slice of node-llama-cpp's API this adapter uses, declared locally so
+ * the server compiles on machines where the (optional) package is absent.
+ */
+export interface LlamaChatSessionLike {
+  prompt(text: string, options: Record<string, unknown>): Promise<string>;
+  resetChatHistory(): void;
+  dispose(): void;
+}
+export interface LlamaContextLike {
+  getSequence(): unknown;
+  dispose(): Promise<void>;
+}
+export interface LlamaModelLike {
+  createContext(options: { contextSize: number; threads: number; sequences: number }): Promise<LlamaContextLike>;
+  dispose(): Promise<void>;
+}
+export interface LlamaLike {
+  loadModel(options: { modelPath: string }): Promise<LlamaModelLike>;
+  dispose(): Promise<void>;
+}
+export interface LlamaModule {
+  getLlama(options: { gpu: false; logLevel: string }): Promise<LlamaLike>;
+  LlamaChatSession: new (options: { contextSequence: unknown }) => LlamaChatSessionLike;
+}
+
 export interface HyMt2Config {
   modelsDir: string;
   /** GGUF file name inside modelsDir (default HYMT2_MODEL_FILE). */
@@ -32,6 +58,8 @@ export interface HyMt2Config {
   threads: number;
   /** Download the model on demand before loading (ModelManager). */
   ensureModel?: () => Promise<void>;
+  /** Loads node-llama-cpp; injectable for tests. Default: dynamic import that fails with an actionable message. */
+  loadLlama?: () => Promise<LlamaModule>;
   log: { info: (o: Record<string, unknown>, m: string) => void; warn: (o: Record<string, unknown>, m: string) => void };
 }
 
@@ -50,10 +78,10 @@ export function buildPrompt(request: Pick<TranslationRequest, 'text' | 'targetLa
 }
 
 class HyMt2Runtime {
-  private llama: Llama | null = null;
-  private model: LlamaModel | null = null;
-  private context: LlamaContext | null = null;
-  private session: LlamaChatSession | null = null;
+  private llama: LlamaLike | null = null;
+  private model: LlamaModelLike | null = null;
+  private context: LlamaContextLike | null = null;
+  private session: LlamaChatSessionLike | null = null;
   private lock: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly config: HyMt2Config) {}
@@ -62,11 +90,16 @@ class HyMt2Runtime {
     return path.join(this.config.modelsDir, this.config.modelFile ?? HYMT2_MODEL_FILE);
   }
 
+  /** Import the engine only (no model): fails fast and clearly on a machine without node-llama-cpp. */
+  loadEngine(): Promise<LlamaModule> {
+    return (this.config.loadLlama ?? importLlama<LlamaModule>)();
+  }
+
   async load(): Promise<void> {
     if (this.session !== null) return;
-    const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
+    const { getLlama, LlamaChatSession } = await this.loadEngine();
     const t0 = Date.now();
-    this.llama = await getLlama({ gpu: false, logLevel: 'error' as never });
+    this.llama = await getLlama({ gpu: false, logLevel: 'error' });
     this.model = await this.llama.loadModel({ modelPath: this.modelPath() });
     this.context = await this.model.createContext({ contextSize: 2048, threads: this.config.threads, sequences: 1 });
     this.session = new LlamaChatSession({ contextSequence: this.context.getSequence() });
@@ -132,6 +165,8 @@ export function createHyMt2Factory(config: HyMt2Config): TranslationAdapterFacto
   return {
     provider,
     async prepare() {
+      // Engine first: never download a 1.1 GB model on a machine that cannot run it.
+      await runtime.loadEngine();
       if (config.ensureModel) await config.ensureModel();
       if (!existsSync(runtime.modelPath())) {
         throw new Error(`Missing translation model:\n  ${runtime.modelPath()}\nRun: npm run models:download`);

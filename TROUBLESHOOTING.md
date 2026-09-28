@@ -27,6 +27,8 @@
 | Node 架构与机器不一致（Rosetta 下的 x64 Node） | `node -p process.arch` 与 `uname -m` 不一致 | 装与机器一致的 Node（nvm 会按当前架构安装） |
 | Linux 找不到共享库 | 报错含 `LD_LIBRARY_PATH` | `export LD_LIBRARY_PATH=$PWD/node_modules/sherpa-onnx-linux-x64:$LD_LIBRARY_PATH` |
 | 不支持的平台（如 Windows arm64、Linux armv7） | doctor 提示 no prebuilt | 无预编译包，暂不支持 |
+| `npm ci` 卡在编译 llama.cpp / `node-llama-cpp` postinstall 报错 | 这台机器用 LM Studio 或云端翻译，根本不需要 node-llama-cpp | 它已是可选依赖：`npm run setup -- --lm-studio`，或手动 `NODE_LLAMA_CPP_SKIP_DOWNLOAD=true npm ci`；doctor 会显示 `○ node-llama-cpp not installed (optional)` |
+| popup「后端未配置此引擎：本机翻译未安装（node-llama-cpp）…」/ `translation_unavailable … node-llama-cpp` | 后端所在机器没装本机翻译引擎 | 「翻译引擎」改选「自定义 LLM」（LM Studio）或 Gemini；要用本机翻译在那台机器执行 `npm run setup:local-translation` |
 
 注：`npm test` 中真实模型的集成测试只在模型已下载时运行；干净 clone 未下载模型时它会被跳过，不会报这个错。
 

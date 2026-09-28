@@ -25,8 +25,11 @@ let failed = 0;
 for (const [rel, spec] of Object.entries(lock.files)) {
   const file = path.join(modelsDir, rel);
   if (!existsSync(file)) {
-    console.error(`✗ missing: ${rel}`);
-    failed++;
+    // Only the `asr` group is required at startup; the others download on first use.
+    if (spec.group === 'asr') {
+      console.error(`✗ missing: ${rel}`);
+      failed++;
+    } else console.log(`○ not downloaded (on first use): ${rel}`);
     continue;
   }
   const hash = await sha256(file);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 — 2026-09-28
+
+### 变更
+- **node-llama-cpp 成为可选依赖**：只用 LM Studio / Gemini 等引擎的机器不再需要安装、下载或编译它。源码不再导入它的类型，缺失时后端照常构建、启动；`hy-mt2` 引擎在 popup 显示「后端未配置此引擎：本机翻译未安装…」，选它开始会话得到 `translation_unavailable` 而不是崩溃。
+- `npm run setup -- --lm-studio`：跳过 node-llama-cpp 二进制（`NODE_LLAMA_CPP_SKIP_DOWNLOAD=true`）、只下载识别模型、`.env` 预填 `TRANSLATION_PROVIDER=llm` 与 LM Studio 三项。`npm run setup:local-translation` 用于事后补装本机翻译。
+- `hy-mt2.prepare()` 先加载引擎再下载模型：没装引擎的机器不会白下 1.1 GB。
+- `npm run doctor` 对 node-llama-cpp 显示三态（已装 / 未装但默认引擎不需要 / 未装且 `TRANSLATION_PROVIDER=hy-mt2`）。
+- popup：所选引擎在后端不可用而该后端已配置「自定义 LLM」时，提示可直接改选。
+
 ## 0.2.0 — 2026-09-28
 
 ### 新增（多声源，全部默认关闭，popup 开启）

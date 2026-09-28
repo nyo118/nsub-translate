@@ -11,6 +11,7 @@ import { createSherpaFactory } from './asr/sherpa-adapter.js';
 import { createMockTranslationFactory, createNoneTranslationFactory } from './translation/mock-adapter.js';
 import { createGoogleTranslationFactory } from './translation/google-adapter.js';
 import { HYMT2_MODEL_FILE, createHyMt2Factory } from './translation/hymt2-adapter.js';
+import { LLAMA_MISSING_HINT, isLlamaInstalled } from './translation/llama-available.js';
 import { GEMINI_OPENAI_BASE_URL, createOpenAiCompatibleFactory } from './translation/openai-compatible-adapter.js';
 import { TranslationRegistry } from './translation/registry.js';
 import { SessionLog } from './metrics/session-log.js';
@@ -170,10 +171,11 @@ export function createTranslationRegistry(config: ServerConfig, log: BootLog, mo
 }
 
 /** Which engines have what they need, without revealing any secret. */
-export function engineStatus(config: ServerConfig, registry: TranslationRegistry): Record<string, EngineStatus> {
+export function engineStatus(config: ServerConfig, registry: TranslationRegistry, llamaInstalled: boolean = isLlamaInstalled()): Record<string, EngineStatus> {
   const s = (configured: boolean, hint?: string): EngineStatus => ({ configured, ready: false, ...(hint === undefined ? {} : { hint }) });
   const status: Record<string, EngineStatus> = {
-    'hy-mt2': existsSync(path.join(config.modelsDir, HYMT2_MODEL_FILE)) ? s(true) : s(false, 'run: npm run models:download'),
+    // The local engine needs the optional node-llama-cpp package *and* the GGUF; the model downloads on first use.
+    'hy-mt2': !llamaInstalled ? s(false, LLAMA_MISSING_HINT) : existsSync(path.join(config.modelsDir, HYMT2_MODEL_FILE)) ? s(true) : s(true, 'model downloads on first use (or: npm run models:download -- --group translation)'),
     gemini: config.geminiApiKey ? s(true) : s(false, 'set GEMINI_API_KEY in packages/server/.env'),
     llm: config.llmBaseUrl && config.llmModel && config.llmApiKey ? s(true) : s(false, 'set LLM_BASE_URL, LLM_MODEL, LLM_API_KEY in packages/server/.env'),
     google: config.googleTranslateApiKey ? s(true) : s(false, 'set GOOGLE_TRANSLATE_API_KEY in packages/server/.env'),
@@ -232,7 +234,11 @@ export async function startServer(config: ServerConfig): Promise<FastifyInstance
       await asr.prepare();
       asrReady = true;
       // Default engine warmed up in the background too (hy-mt2 downloads on demand).
-      await translation.get().catch((err: unknown) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'default translation engine not ready'));
+      if (translation.defaultProvider === 'hy-mt2' && !isLlamaInstalled()) {
+        app.log.warn({ hint: LLAMA_MISSING_HINT }, 'TRANSLATION_PROVIDER=hy-mt2 but node-llama-cpp is not installed; sessions must pick another engine (set TRANSLATION_PROVIDER=llm for LM Studio)');
+      } else {
+        await translation.get().catch((err: unknown) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'default translation engine not ready'));
+      }
       app.log.info('backend ready');
     } catch (err) {
       asrError = err instanceof Error ? err.message : String(err);

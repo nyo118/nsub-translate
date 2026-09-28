@@ -2,12 +2,27 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { FastifyInstance } from 'fastify';
 import { AUDIO_FORMAT, PROTOCOL_VERSION, validateServerMessage, type ServerMessage } from '@lst/protocol';
-import { buildApp } from './app.js';
+import { buildApp, engineStatus } from './app.js';
+import { loadConfig } from './config.js';
 import { createMockFactory } from './asr/mock-adapter.js';
 import { createMockTranslationFactory } from './translation/mock-adapter.js';
 import { TranslationRegistry } from './translation/registry.js';
 
 const START = JSON.stringify({ type: 'session.start', protocolVersion: PROTOCOL_VERSION, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: AUDIO_FORMAT });
+
+describe('engineStatus without node-llama-cpp (optional dependency)', () => {
+  it('reports hy-mt2 as unconfigured with the LM Studio hint; other engines unaffected', () => {
+    const config = loadConfig({ TRANSLATION_PROVIDER: 'llm', LLM_BASE_URL: 'http://lm:1234', LLM_MODEL: 'm', LLM_API_KEY: 'k', MODELS_DIR: '/nonexistent' });
+    const registry = new TranslationRegistry('llm');
+    const without = engineStatus(config, registry, false);
+    expect(without['hy-mt2']).toEqual({ configured: false, ready: false, hint: expect.stringContaining('LM Studio') });
+    expect(without['llm']?.configured).toBe(true);
+    // Package present but no GGUF yet: usable, the model downloads on first use.
+    const withPkg = engineStatus(config, registry, true);
+    expect(withPkg['hy-mt2']?.configured).toBe(true);
+    expect(withPkg['hy-mt2']?.hint).toContain('first use');
+  });
+});
 
 /**
  * Integration test: a real Fastify server on an ephemeral loopback port and

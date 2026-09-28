@@ -42,7 +42,12 @@ npx playwright install chromium   # 仅当要跑 e2e 时需要（约 100 MB）
 
 **模型自动下载**：后端启动时若发现 `models.lock.json` 里的语音识别模型缺失，会自动下载并校验（约 160 MB），期间 popup 显示下载进度；本机翻译模型（1.1 GB）只在第一次选用「本机 Hy-MT2」时下载。因此 `npm run models:download` 不是必需的，只是预先下载。`AUTO_DOWNLOAD_MODELS=0` 可关闭自动下载。
 
-**后端放到另一台机器**：在那台机器上部署后端并以 `HOST=0.0.0.0` 启动（写进它的 `packages/server/.env`），本机 popup「诊断 → 后端地址」填 `192.168.x.x:8787` 并点「应用」（Chrome 会询问访问该地址的权限）。后端无鉴权，仅限可信局域网。
+**后端放到另一台机器 / 用 LM Studio 翻译的机器**：在那台机器上
+```bash
+nvm use
+npm run setup -- --lm-studio   # 不下载/不编译 node-llama-cpp、只下载识别模型（约 160 MB）、.env 预填 TRANSLATION_PROVIDER=llm
+```
+然后在它的 `packages/server/.env` 填 `LLM_BASE_URL`（LM Studio 地址，如 `http://127.0.0.1:1234`）、`LLM_API_KEY`、`LLM_MODEL`，并加 `HOST=0.0.0.0`；启动后本机 popup「诊断 → 后端地址」填 `192.168.x.x:8787`（或 Tailscale IP）并点「应用」（Chrome 会询问访问该地址的权限），「翻译引擎」选「自定义 LLM」。后端无鉴权，仅限可信网络。`node-llama-cpp` 现在是**可选依赖**：没装时 `hy-mt2` 引擎在 popup 显示「后端未配置此引擎」，其余功能不受影响；事后想在这台机器补装本机翻译执行 `npm run setup:local-translation`。
 
 **从 GitHub Release 安装扩展**：下载 `nsub-translate-extension-v0.1.0.zip`，核对 `SHA256SUMS.txt`，解压后在 `chrome://extensions` Load unpacked；后端仍按上面方式从源码运行（或解压 `nsub-translate-server-v0.1.0.zip` 后 `npm ci --omit=dev && npm run models:download && node packages/server/dist/index.js`）。
 
