@@ -30,6 +30,7 @@ interface ModelGroupState {
 }
 interface BackendHealth {
   ok: boolean;
+  version?: string;
   ready?: boolean;
   uptimeSec?: number;
   activeSessions?: number;
@@ -528,7 +529,7 @@ export function App() {
           <div className="diag">
             <div className="row">
               <span className="label">本地后端</span>
-              <span className="value">{backend.kind === 'up' ? `运行中 · ${formatDuration((backend.health.uptimeSec ?? 0) * 1000)}` : backend.kind === 'down' ? '未运行' : '…'}</span>
+              <span className="value">{backend.kind === 'up' ? `运行中${backend.health.version ? ` · v${backend.health.version}` : ''} · ${formatDuration((backend.health.uptimeSec ?? 0) * 1000)}${backend.health.version && backend.health.version !== chrome.runtime.getManifest().version ? '（与扩展版本不同）' : ''}` : backend.kind === 'down' ? '未运行' : '…'}</span>
             </div>
             {backend.kind === 'up' && (
               <div className="row">

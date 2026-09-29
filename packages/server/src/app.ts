@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import websocket from '@fastify/websocket';
 import { MAX_AUDIO_FRAME_BYTES, type ServerMessage } from '@lst/protocol';
@@ -44,6 +45,8 @@ export interface AppOptions {
 }
 
 const startedAt = Date.now();
+/** Backend version (packages/server/package.json), reported by /healthz so a remote box can be checked from the popup. */
+const SERVER_VERSION: string = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 /** More than 2× real time sustained means a misbehaving client; frames beyond it are dropped. */
 const MAX_AUDIO_FRAMES_PER_SEC = 25;
 
@@ -59,6 +62,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   app.get('/healthz', async () => ({
     ok: true,
+    version: SERVER_VERSION,
     openConnections,
     activeSessions,
     uptimeSec: Math.round((Date.now() - startedAt) / 1000),
