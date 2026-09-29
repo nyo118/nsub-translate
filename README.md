@@ -1,5 +1,4 @@
-<img src="packages/extension/public/icons/icon48.png" width="40" align="left" alt="">
-
+<img src="packages/extension/public/icons/icon48.png" width="70" align="left" alt="">
 # N Sub — Live Subtitle Translator
 
 English | [中文](README.zh-CN.md)
