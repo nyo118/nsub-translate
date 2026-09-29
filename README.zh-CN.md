@@ -1,10 +1,9 @@
-<img src="packages/extension/public/icons/icon48.png" width="40" align="left" alt="">
-
+<img src="packages/extension/public/icons/icon48.png" width="70" align="left" alt="">
 # N Sub — 即时双语字幕
 
 [English](README.md) | 中文
 
-一个 Chrome 扩展，在 YouTube 和 Twitch 视频上叠加双语实时字幕。标签页音频送到本机后端，由 SenseVoice 识别（中、英、日、韩、粤），再由本机 Hy-MT2 模型或你选的引擎（LM Studio、Gemini、Google）翻译。全部在自己的机器上运行，默认配置不需要账号或 API key。
+一个 Chrome 扩展，在 YouTube 和 Twitch 视频上叠加双语实时字幕。标签页音频送到本机后端，由 SenseVoice 识别（中、英、日、韩、粤），再由本机 Hy-MT2 模型或你选的引擎（LM Studio、Gemini、Google）翻译。全部在自己的机器上运行，默认配置不需要账号或API key。
 
 可选功能：给带音乐、游戏音效的直播降噪；给多人对话加说话人标签（A / B / C）。
 
