@@ -5,7 +5,14 @@
  * PROTOCOL_VERSION and be documented in ARCHITECTURE.md.
  */
 
-export const PROTOCOL_VERSION = 7 as const;
+export const PROTOCOL_VERSION = 8 as const;
+
+/**
+ * v8 (0.4.0): `session.translate` lets the client pause and resume
+ * translation mid-session (the extension sends it when the player is showing
+ * an ad: speech is still recognised, nothing is sent to the translator).
+ * `transcript.ad` marks a segment that was left untranslated for that reason.
+ */
 
 /**
  * v7 (0.3.0): `session.start.options.denoiser` picks the speech-enhancement
@@ -104,7 +111,24 @@ export interface SessionPingMessage {
   sessionId: string;
 }
 
-export type ClientMessage = SessionStartMessage | SessionStopMessage | SessionPingMessage;
+/** Why the client paused translation; the backend tags the affected transcripts accordingly. */
+export type TranslatePauseReason = 'ad';
+export const TRANSLATE_PAUSE_REASONS: readonly TranslatePauseReason[] = ['ad'];
+
+/**
+ * v8: pause (`enabled: false`) or resume translation for the running
+ * session. Recognition continues either way; while paused, finals are
+ * forwarded as source text only and never queued for translation.
+ */
+export interface SessionTranslateMessage {
+  type: 'session.translate';
+  sessionId: string;
+  enabled: boolean;
+  /** Required when pausing; ignored when resuming. */
+  reason?: TranslatePauseReason;
+}
+
+export type ClientMessage = SessionStartMessage | SessionStopMessage | SessionPingMessage | SessionTranslateMessage;
 
 // ---------------------------------------------------------------------------
 // Server -> Client
@@ -179,6 +203,8 @@ export interface TranscriptMessage {
   speaker?: string;
   /** True when several voices overlapped in this segment (sourceText is then a placeholder in `mark` mode). */
   overlap?: boolean;
+  /** v8: true when the segment was recognised during an ad and therefore left untranslated. */
+  ad?: boolean;
 }
 
 export interface SessionPongMessage {

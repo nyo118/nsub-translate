@@ -36,6 +36,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       }
       return respond(manager.sessionForTab(tabId));
     }
+    case 'content.adState': {
+      const tabId = sender.tab?.id;
+      if (tabId === undefined) {
+        sendResponse({ ok: false, error: 'no tab' });
+        return false;
+      }
+      return respond(manager.onAdState(tabId, message.inAd).then(() => ({ ok: true })));
+    }
     case 'offscreen.transcript':
       return respond(manager.onTranscript(message.transcript).then(() => ({ ok: true })));
     case 'offscreen.level':

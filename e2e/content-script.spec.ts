@@ -158,4 +158,40 @@ test.describe('content script on a YouTube-like page', () => {
     await expect.poll(() => overlayLines(page)).toEqual([{ source: null, translated: '样式。', partial: false }]);
     await sendToContent(serviceWorker, tabId, { type: 'content.sessionStopped' });
   });
+
+  test('an ad on the player is reported to the worker; ad lines show a tag and no translation', async ({ context, serviceWorker, youtubeUrl }) => {
+    const page = await context.newPage();
+    await page.goto(youtubeUrl);
+    const tabId = await tabIdFor(serviceWorker, '*://www.youtube.com/*');
+    await waitForContentScript(serviceWorker, tabId);
+    await serviceWorker.evaluate(() => {
+      const g = globalThis as unknown as { __adStates: boolean[] };
+      g.__adStates = [];
+      chrome.runtime.onMessage.addListener((m: { type?: string; inAd?: boolean }) => {
+        if (m?.type === 'content.adState') g.__adStates.push(m.inAd === true);
+      });
+    });
+    const adStates = () => serviceWorker.evaluate(() => (globalThis as unknown as { __adStates: boolean[] }).__adStates);
+
+    await sendToContent(serviceWorker, tabId, { type: 'content.sessionStarted', sessionId: 'e2e', audioOriginWall: Date.now() });
+    await page.evaluate(() => document.getElementById('movie_player')!.classList.add('ad-showing'));
+    await expect.poll(adStates).toEqual([true]);
+
+    await sendToContent(serviceWorker, tabId, {
+      type: 'content.transcript',
+      transcript: { type: 'transcript', sessionId: 'e2e', segmentId: 'ad1', revision: 0, status: 'final', startMs: 0, endMs: 1500, sourceText: 'Buy now and save.', ad: true },
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const el = document.getElementById('lst-subtitle-overlay')?.shadowRoot?.querySelector('.lst-line.lst-ad');
+          return el ? { tag: el.querySelector('.lst-ad-tag')?.textContent ?? null, source: el.querySelector('.lst-source')?.textContent ?? null, translated: el.querySelector('.lst-translated')?.textContent ?? null } : null;
+        }),
+      )
+      .toEqual({ tag: '广告', source: '广告Buy now and save.', translated: null });
+
+    await page.evaluate(() => document.getElementById('movie_player')!.classList.remove('ad-showing'));
+    await expect.poll(adStates).toEqual([true, false]);
+    await sendToContent(serviceWorker, tabId, { type: 'content.sessionStopped' });
+  });
 });

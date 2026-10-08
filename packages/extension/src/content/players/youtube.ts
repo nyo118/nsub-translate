@@ -19,6 +19,11 @@ export const youtubeAdapter: PlayerAdapter = {
     const bar = container.querySelector<HTMLElement>('.ytp-chrome-bottom');
     return (bar?.offsetHeight || 48) + 12;
   },
+  isAdPlaying(root) {
+    // YouTube toggles these classes on the player while an ad (pre-roll, mid-roll) is playing.
+    const container = this.findContainer(root);
+    return container !== null && (container.classList.contains('ad-showing') || container.classList.contains('ad-interrupting'));
+  },
   isLive(root, video) {
     const container = this.findContainer(root);
     // YouTube marks live players with the `ytp-live` class and a live badge; an infinite duration is the generic signal.

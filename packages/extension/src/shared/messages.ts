@@ -1,4 +1,4 @@
-import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslatePauseReason, TranslationInfo } from '@lst/protocol';
 import type { Platform } from './platform.js';
 
 /**
@@ -41,6 +41,8 @@ export interface SessionSnapshot {
   sessionLimitMs?: number;
   /** Distinct languages the recognizer reported among the last finals (auto-detect quality hint). */
   detectedLanguages?: string[];
+  /** The player is showing an ad: recognition continues, translation is paused. */
+  adPaused?: boolean;
 }
 
 // ---- Popup -> Background --------------------------------------------------
@@ -60,7 +62,10 @@ export type PopupToBackground =
   | { target: 'background'; type: 'popup.stop' };
 
 // ---- Content -> Background ------------------------------------------------
-export type ContentToBackground = { target: 'background'; type: 'content.hello'; platform: Platform | null; playerFound: boolean };
+export type ContentToBackground =
+  | { target: 'background'; type: 'content.hello'; platform: Platform | null; playerFound: boolean }
+  /** The player started / stopped showing an ad (only sent while a session is active in that tab). */
+  | { target: 'background'; type: 'content.adState'; inAd: boolean };
 
 // ---- Offscreen -> Background ----------------------------------------------
 export type OffscreenToBackground =
@@ -101,7 +106,14 @@ export interface OffscreenPingRequest {
   target: 'offscreen';
   type: 'offscreen.ping';
 }
-export type ToOffscreen = OffscreenStartRequest | OffscreenStopRequest | OffscreenPingRequest;
+/** Pause / resume translation on the backend session (recognition continues). */
+export interface OffscreenSetTranslationRequest {
+  target: 'offscreen';
+  type: 'offscreen.setTranslation';
+  enabled: boolean;
+  reason: TranslatePauseReason;
+}
+export type ToOffscreen = OffscreenStartRequest | OffscreenStopRequest | OffscreenPingRequest | OffscreenSetTranslationRequest;
 
 export interface ReleasedResources {
   tracksStopped: number;

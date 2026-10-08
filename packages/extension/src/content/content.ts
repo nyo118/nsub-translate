@@ -1,6 +1,7 @@
 import { detectPlatform } from '../shared/platform.js';
 import { isTargeted, type ContentDetectResponse, type ContentHelloResponse, type ContentToBackground, type ToContent } from '../shared/messages.js';
 import { SettingsStore } from '../shared/settings-store.js';
+import { DEFAULT_SETTINGS } from '../shared/settings.js';
 import type { TranscriptMessage } from '@lst/protocol';
 import { adapterFor } from './players/index.js';
 import { SubtitleOverlay } from './overlay.js';
@@ -18,6 +19,8 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
  *   - seek  → clear the screen, drop late transcripts of pre-seek audio
  *   - replay → show cached finals for the position at once
  *   - pause → keep the last lines (nothing new is spoken anyway)
+ *   - ad    → tell the worker, which pauses translation on the backend; ad lines
+ *             are shown as source only and never cached by video position
  */
 (function main() {
   const platform = detectPlatform(location.hostname);
@@ -42,6 +45,9 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
   let unsubscribeSettings: (() => void) | null = null;
   let ticker: ReturnType<typeof setInterval> | null = null;
   let droppedStale = 0;
+  /** Ad state last reported to the worker (false = normal content). */
+  let inAd = false;
+  let skipAdTranslation = DEFAULT_SETTINGS.skipAdTranslation;
 
   function log(message: string, data?: unknown): void {
     console.info(`[LST/content] ${message}`, data ?? '');
@@ -82,6 +88,21 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
     if (binder?.ensureMounted()) overlay.render(linesToShow());
   }
 
+  /** Report ad start / end to the worker (which pauses translation on the backend). Idempotent. */
+  function reportAd(next: boolean): void {
+    if (next === inAd) return;
+    inAd = next;
+    log(next ? 'ad started; translation paused' : 'ad ended; translation resumed');
+    if (!isContextAlive()) return;
+    const message: ContentToBackground = { target: 'background', type: 'content.adState', inAd: next };
+    chrome.runtime.sendMessage(message).catch((err: unknown) => log('could not report ad state', String(err)));
+  }
+
+  function pollAd(): void {
+    if (!active) return;
+    reportAd(skipAdTranslation && (adapter?.isAdPlaying(document) ?? false));
+  }
+
   /** Wall-clock span of a transcript, once the audio origin is known. */
   function wallSpan(t: TranscriptMessage): { start: number; end: number } | null {
     if (audioOriginWall === null) return null;
@@ -92,7 +113,8 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
     if (!active) return;
     const span = wallSpan(t);
     // Finals get cached by video position (VOD only) — even stale ones, so a replay shows them.
-    if (span !== null && t.status === 'final' && !isLive()) {
+    // Ad speech is never cached: an ad's video time overlaps the real content that follows it.
+    if (span !== null && t.status === 'final' && !isLive() && t.ad !== true) {
       const startTime = timeline.videoTimeAt(span.start);
       const endTime = timeline.videoTimeAt(span.end);
       if (startTime !== null && endTime !== null) {
@@ -120,10 +142,16 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
     timeline.clear();
     droppedStale = 0;
     try {
-      overlay.setStyle((await settings.load()).style);
+      const loaded = await settings.load();
+      overlay.setStyle(loaded.style);
+      skipAdTranslation = loaded.skipAdTranslation;
       unsubscribeSettings?.();
-      // Style changes from the popup apply immediately, even mid-session.
-      unsubscribeSettings = settings.subscribe((s) => overlay.setStyle(s.style));
+      // Style and ad-handling changes from the popup apply immediately, even mid-session.
+      unsubscribeSettings = settings.subscribe((s) => {
+        overlay.setStyle(s.style);
+        skipAdTranslation = s.skipAdTranslation;
+        pollAd();
+      });
     } catch (err) {
       log('could not load settings, using defaults', String(err));
     }
@@ -135,6 +163,7 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
         tick += 1;
         // Keep the subtitles clear of the control bar (cheap DOM read, 4×/s).
         if (adapter !== null) overlay.setLift(adapter.controlsLift(document));
+        pollAd();
         if (tick % 2 !== 0) return;
         syncTracker();
         tracker.sample();
@@ -147,12 +176,14 @@ import { SubtitleCache, type CachedSegment } from './subtitle-cache.js';
     } else {
       log('session started but no player container found yet');
     }
+    pollAd();
   }
 
   function stopSession(): void {
     active = false;
     sessionId = null;
     audioOriginWall = null;
+    inAd = false; // the backend session is gone; nothing to resume
     store.clear();
     cache.clear();
     timeline.clear();

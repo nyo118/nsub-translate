@@ -155,4 +155,17 @@ describe('SubtitleOverlay speaker labels', () => {
     const again = document.querySelector(`#${OVERLAY_HOST_ID}`)!.shadowRoot!.querySelectorAll('.lst-line');
     expect(again[0]!.querySelector('.lst-translated')!.textContent).toBe('A:你好');
   });
+
+  it('marks ad lines with a tag on the source row and no translation row', () => {
+    document.body.innerHTML = `<div id="movie_player"></div>`;
+    const container = document.getElementById('movie_player')!;
+    const overlay = new SubtitleOverlay(document);
+    overlay.mount(container);
+    overlay.render([{ sourceText: 'Buy now', translatedText: undefined, status: 'final', ad: true }]);
+    const line = container.querySelector<HTMLElement>(`#${OVERLAY_HOST_ID}`)!.shadowRoot!.querySelector('.lst-line')!;
+    expect(line.classList.contains('lst-ad')).toBe(true);
+    expect(line.querySelector('.lst-source .lst-ad-tag')!.textContent).toBe('广告');
+    expect(line.querySelector('.lst-source')!.textContent).toBe('广告Buy now');
+    expect(line.querySelector('.lst-translated')).toBeNull();
+  });
 });

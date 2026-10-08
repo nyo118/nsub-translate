@@ -353,6 +353,9 @@ export function App() {
           <input type="checkbox" checked={settings.translatePartials} onChange={(e) => updateSettings({ translatePartials: e.target.checked })} /> 边说边翻译（未说完的句子也翻译，较耗 CPU；翻译跟不上时自动只翻整句；下次开始时生效）
         </label>
         <label className="check subtle">
+          <input type="checkbox" checked={settings.skipAdTranslation} onChange={(e) => updateSettings({ skipAdTranslation: e.target.checked })} /> 广告期间只识别不翻译（自动检测 YouTube / Twitch 播放器里的广告，字幕带「广告」标记；立即生效）
+        </label>
+        <label className="check subtle">
           <input type="checkbox" checked={settings.denoise} onChange={(e) => updateSettings({ denoise: e.target.checked })} /> 降噪（游戏音效或背景音乐盖住人声时开启；对干净人声略有损伤；下次开始时生效）
         </label>
         {settings.denoise && (
@@ -415,6 +418,8 @@ export function App() {
                   : `识别 ${providerName(snapshot?.asr?.provider)} · ${snapshot?.asr?.language === 'auto' ? '自动检测' : snapshot?.asr?.language ?? ''}${
                       snapshot?.metrics ? ` · ${(snapshot.metrics.avgLatencyMs / 1000).toFixed(1)} s` : ''
                     }${snapshot?.asr?.denoise ? ` · 降噪${snapshot.asr.denoiser ? `(${snapshot.asr.denoiser})` : ''}` : ''}${snapshot?.asr?.diarize ? ' · 分说话人' : ''}  ｜  翻译 ${providerName(snapshot?.translation?.provider)}${
+                      snapshot?.adPaused ? ' · 广告中，暂停翻译' : ''
+                    }${
                       snapshot?.metrics && snapshot.metrics.translated > 0 ? ` · ${(snapshot.metrics.avgTranslateMs / 1000).toFixed(1)} s` : ''
                     }${snapshot?.metrics && snapshot.metrics.translationBacklog > 1 ? ` · 排队 ${snapshot.metrics.translationBacklog}` : ''}`}
               </div>

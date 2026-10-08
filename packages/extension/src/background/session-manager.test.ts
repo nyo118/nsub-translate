@@ -8,6 +8,7 @@ interface FakeWorld {
   offscreenOpen: { value: boolean };
   contentMessages: Array<{ tabId: number; type: string }>;
   calls: string[];
+  translationCalls: Array<{ enabled: boolean; reason: string }>;
 }
 
 function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
@@ -15,6 +16,7 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
   const offscreenOpen = { value: false };
   const contentMessages: Array<{ tabId: number; type: string }> = [];
   const calls: string[] = [];
+  const translationCalls: Array<{ enabled: boolean; reason: string }> = [];
   const ports: SessionPorts = {
     loadState: async () => stored.value,
     loadLanguages: async () => ({ sourceLanguage: 'ja', targetLanguage: 'zh-TW', translatePartials: false, translationProvider: 'hy-mt2', denoise: false, diarize: false, overlap: 'mark', sessionLimitMs: 3 * 3_600_000, backendUrl: 'ws://192.168.50.2:8787/ws' }),
@@ -47,13 +49,16 @@ function makeWorld(overrides: Partial<SessionPorts> = {}): FakeWorld {
       calls.push('stopOffscreen');
       return { tracksStopped: 1, audioContextState: 'closed', webSocketState: 'closed' };
     },
+    setOffscreenTranslation: async (enabled, reason) => {
+      translationCalls.push({ enabled, reason });
+    },
     notifyContent: async (tabId, message) => {
       contentMessages.push({ tabId, type: message.type });
     },
     log: () => {},
     ...overrides,
   };
-  return { ports, stored, offscreenOpen, contentMessages, calls };
+  return { ports, stored, offscreenOpen, contentMessages, calls, translationCalls };
 }
 
 function manager(world: FakeWorld) {
@@ -309,5 +314,31 @@ describe('SessionManager', () => {
     await manager(world).stop();
     expect(stopOffscreen).toHaveBeenCalledTimes(1);
     expect(world.offscreenOpen.value).toBe(false);
+  });
+
+  it('ad state from the session tab pauses / resumes translation once per change; other tabs and idle are ignored', async () => {
+    const world = makeWorld();
+    const m = manager(world);
+    await m.onAdState(7, true); // idle → nothing
+    expect(world.translationCalls).toEqual([]);
+    await m.start();
+    await m.onAdState(8, true); // another tab → nothing
+    expect(world.translationCalls).toEqual([]);
+    await m.onAdState(7, true);
+    await m.onAdState(7, true); // duplicate → not re-sent
+    expect(world.translationCalls).toEqual([{ enabled: false, reason: 'ad' }]);
+    expect((await m.snapshot()).adPaused).toBe(true);
+    expect(world.stored.value?.adPaused).toBe(true); // survives a worker restart
+    await m.onAdState(7, false);
+    expect(world.translationCalls).toEqual([{ enabled: false, reason: 'ad' }, { enabled: true, reason: 'ad' }]);
+    expect((await m.snapshot()).adPaused).toBe(false);
+  });
+
+  it('a failing offscreen translation update is logged, not thrown', async () => {
+    const world = makeWorld({ setOffscreenTranslation: async () => { throw new Error('no session'); } });
+    const m = manager(world);
+    await m.start();
+    await expect(m.onAdState(7, true)).resolves.toBeUndefined();
+    expect(world.stored.value?.adPaused).toBe(true);
   });
 });

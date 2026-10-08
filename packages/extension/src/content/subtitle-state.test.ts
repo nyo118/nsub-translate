@@ -80,4 +80,10 @@ describe('SubtitleStore', () => {
     expect(store.size).toBe(0);
     expect(store.visible()).toEqual([]);
   });
+
+  it('passes the ad flag through to the visible lines', () => {
+    const store = new SubtitleStore();
+    store.apply(t({ segmentId: 'a', revision: 0, status: 'final', sourceText: 'Buy now', ad: true }));
+    expect(store.visible()).toEqual([{ sourceText: 'Buy now', translatedText: undefined, status: 'final', ad: true }]);
+  });
 });

@@ -6,7 +6,7 @@ import { SessionLog, type SessionSummary } from './session-log.js';
 
 const summary = (id: string): SessionSummary => ({
   sessionId: id, startedAt: '2026-09-25T00:00:00.000Z', endedAt: '2026-09-25T00:10:00.000Z', durationSec: 600, reason: 'user', sourceLanguage: 'auto', targetLanguage: 'zh-CN',
-  asrProvider: 'sensevoice', asrLanguage: 'auto', translationProvider: 'hy-mt2', translatePartials: false, denoise: false, diarize: false, audioSeconds: 590, partials: 40, finals: 20, translated: 18, translationCoverage: 0.9,
+  asrProvider: 'sensevoice', asrLanguage: 'auto', translationProvider: 'hy-mt2', translatePartials: false, denoise: false, diarize: false, audioSeconds: 590, partials: 40, finals: 20, translated: 18, translationSkipped: 0, translationCoverage: 0.9,
   asrDecodeP50Ms: 300, asrLatencyP50Ms: 400, asrLatencyP95Ms: 900, translateP50Ms: 2000, translateP95Ms: 4000, translationFailures: 1, errors: [],
 });
 

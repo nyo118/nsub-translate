@@ -21,4 +21,28 @@ describe('PlayerAdapter controls / live detection', () => {
     expect(twitchAdapter.findVideo(document)?.tagName).toBe('VIDEO');
     expect(twitchAdapter.isLive(document, null)).toBe(true);
   });
+
+  it('YouTube: an ad is playing while the player carries ad-showing / ad-interrupting', () => {
+    document.body.innerHTML = `<div id="movie_player" class="html5-video-player"><video></video></div>`;
+    expect(youtubeAdapter.isAdPlaying(document)).toBe(false);
+    document.getElementById('movie_player')!.classList.add('ad-showing');
+    expect(youtubeAdapter.isAdPlaying(document)).toBe(true);
+    document.getElementById('movie_player')!.className = 'html5-video-player ad-interrupting';
+    expect(youtubeAdapter.isAdPlaying(document)).toBe(true);
+    document.body.innerHTML = '';
+    expect(youtubeAdapter.isAdPlaying(document)).toBe(false);
+  });
+
+  it('Twitch: an ad is playing while the player shows an ad label / countdown', () => {
+    document.body.innerHTML = `<div data-a-target="video-player"><video></video></div>`;
+    expect(twitchAdapter.isAdPlaying(document)).toBe(false);
+    document.querySelector('[data-a-target="video-player"]')!.insertAdjacentHTML('beforeend', '<span data-a-target="video-ad-label">Ad</span>');
+    expect(twitchAdapter.isAdPlaying(document)).toBe(true);
+    document.querySelector('[data-a-target="video-ad-label"]')!.remove();
+    document.querySelector('[data-a-target="video-player"]')!.insertAdjacentHTML('beforeend', '<span data-a-target="video-ad-countdown">0:15</span>');
+    expect(twitchAdapter.isAdPlaying(document)).toBe(true);
+    // A label outside the player (e.g. the display ad above chat) does not count.
+    document.body.innerHTML = `<div data-a-target="video-player"><video></video></div><span data-a-target="video-ad-label">Ad</span>`;
+    expect(twitchAdapter.isAdPlaying(document)).toBe(false);
+  });
 });

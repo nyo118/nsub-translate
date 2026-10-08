@@ -18,6 +18,8 @@ export interface PlayerAdapter {
    * bar is showing (0 when hidden). Adapters read the player's own state.
    */
   controlsLift(root: ParentNode): number;
+  /** Whether the player is currently showing an ad (pre-roll / mid-roll). Cheap: called 4×/s. */
+  isAdPlaying(root: ParentNode): boolean;
   /**
    * Start watching for player changes. `onChange` is called whenever the
    * adapter believes the container may have changed; the caller re-checks.

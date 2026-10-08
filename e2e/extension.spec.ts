@@ -56,6 +56,7 @@ test('popup settings persist to chrome.storage.local and survive a reload of the
       targetLanguage: 'ja',
       translationEngine: 'hy-mt2',
       translatePartials: false,
+      skipAdTranslation: true,
       sessionLimitHours: 3,
       denoise: false,
       denoiseStrength: 'auto',
@@ -91,7 +92,7 @@ test('an extension page can complete the protocol handshake with the local backe
         ws.binaryType = 'arraybuffer';
         const timer = setTimeout(() => reject(new Error(`timeout; received: ${received.join(' | ')}`)), 8000);
         ws.onopen = () =>
-          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 7, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
+          ws.send(JSON.stringify({ type: 'session.start', protocolVersion: 8, sourceLanguage: 'en', targetLanguage: 'zh-CN', audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } }));
         ws.onmessage = (ev) => {
           const msg = JSON.parse(String(ev.data)) as { type: string; sessionId?: string; code?: string };
           received.push(msg.type === 'session.error' ? `session.error:${msg.code}` : msg.type);

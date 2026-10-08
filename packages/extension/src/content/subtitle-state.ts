@@ -10,6 +10,7 @@ export interface SubtitleSegment {
   translatedText?: string;
   speaker?: string;
   overlap?: boolean;
+  ad?: boolean;
 }
 
 export interface SubtitleLine {
@@ -20,6 +21,8 @@ export interface SubtitleLine {
   speaker?: string;
   /** Several people spoke at once (sourceText may be a placeholder notice). */
   overlap?: boolean;
+  /** Recognised during an ad: shown as source only, with an ad tag. */
+  ad?: boolean;
 }
 
 /**
@@ -69,6 +72,7 @@ export class SubtitleStore {
     if (t.translatedText !== undefined) segment.translatedText = t.translatedText;
     if (t.speaker !== undefined) segment.speaker = t.speaker;
     if (t.overlap !== undefined) segment.overlap = t.overlap;
+    if (t.ad !== undefined) segment.ad = t.ad;
     this.segments.set(t.segmentId, segment);
     return true;
   }
@@ -98,6 +102,7 @@ export class SubtitleStore {
     const line: SubtitleLine = { sourceText: s.sourceText, translatedText: s.translatedText, status: s.status };
     if (s.speaker !== undefined) line.speaker = s.speaker;
     if (s.overlap !== undefined) line.overlap = s.overlap;
+    if (s.ad !== undefined) line.ad = s.ad;
     return line;
   }
 

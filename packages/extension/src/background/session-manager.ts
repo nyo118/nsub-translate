@@ -1,4 +1,4 @@
-import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslatePauseReason, TranslationInfo } from '@lst/protocol';
 import type { Platform } from '../shared/platform.js';
 import type { ReleasedResources, SessionSnapshot, SessionStatus } from '../shared/messages.js';
 
@@ -25,6 +25,8 @@ export interface PersistedSession {
   sessionLimitMs?: number;
   reconnects?: number;
   lastError?: string;
+  /** The content script reported an ad: translation is paused on the backend. */
+  adPaused?: boolean;
 }
 
 /** Settings read once at start and sent to the backend (later changes never touch a running session). */
@@ -59,6 +61,8 @@ export interface SessionPorts {
   closeOffscreen(): Promise<void>;
   startOffscreen(req: StartSettings & { streamId: string; backendUrl: string; sessionLimitMs: number }): Promise<{ ok: true; sessionId: string; asr?: AsrInfo; translation?: TranslationInfo } | { ok: false; error: string }>;
   stopOffscreen(): Promise<ReleasedResources | undefined>;
+  /** Pause / resume translation on the running backend session (the offscreen document owns the socket). */
+  setOffscreenTranslation(enabled: boolean, reason: TranslatePauseReason): Promise<void>;
   notifyContent(
     tabId: number,
     message:
@@ -139,6 +143,7 @@ export class SessionManager {
     if (state.diarize !== undefined) snap.diarize = state.diarize;
     if (state.sessionLimitMs !== undefined) snap.sessionLimitMs = state.sessionLimitMs;
     snap.reconnects = state.reconnects ?? 0;
+    if (state.adPaused !== undefined) snap.adPaused = state.adPaused;
     if (state.status === 'active') {
       if (this.audioLevel !== undefined) snap.audioLevel = this.audioLevel;
       if (this.metrics !== undefined) snap.metrics = this.metrics;
@@ -291,6 +296,23 @@ export class SessionManager {
 
   onAudioLevel(level: number): void {
     this.audioLevel = level;
+  }
+
+  /**
+   * The content script saw an ad start (`inAd`) or end. Only the session's own
+   * tab may change this; the backend keeps recognising and just skips the translator.
+   */
+  async onAdState(tabId: number, inAd: boolean): Promise<void> {
+    const current = await this.getState();
+    if (current.status !== 'active' || current.tabId !== tabId) return;
+    if ((current.adPaused ?? false) === inAd) return;
+    await this.setState({ ...current, adPaused: inAd });
+    try {
+      await this.ports.setOffscreenTranslation(!inAd, 'ad');
+      this.ports.log('info', inAd ? 'ad started: translation paused' : 'ad ended: translation resumed');
+    } catch (err) {
+      this.ports.log('warn', 'could not update translation state on the offscreen document', String(err));
+    }
   }
 
   onMetrics(metrics: SessionMetricsMessage): void {

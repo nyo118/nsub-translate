@@ -170,6 +170,13 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       sendResponse(response);
       return false;
     }
+    case 'offscreen.setTranslation': {
+      // The client remembers the desired state and re-applies it after a reconnect.
+      const ok = client !== null && client.setTranslation(message.enabled, message.reason);
+      log(message.enabled ? 'translation resumed' : `translation paused (${message.reason})`, { sent: ok });
+      sendResponse({ ok: client !== null });
+      return false;
+    }
     default:
       return false;
   }

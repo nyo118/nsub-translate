@@ -143,7 +143,7 @@
 | P4-5 | YouTube 迷你播放器 / 剧场模式 / 全屏切换 | 字幕层跟随，Console 显示 `tracking video element`（元素替换时） |
 | P4-6 | YouTube 直播 | popup 与提示层显示直播；无缓存行为；字幕正常 |
 | P4-7 | Twitch 频道页：开始 → 剧场模式 → 全屏 → 切频道 | 字幕层跟随；切频道后缓存清空、字幕继续 |
-| P4-8 | Twitch 广告期间 | 可能出现广告语音字幕（已知限制），广告结束后正常 |
+| P4-8 | Twitch 广告期间 | 0.4.0：命中广告标记时字幕只有原文并带「广告」标记；未命中时广告语音照常翻译（已知限制），广告结束后正常 |
 | P4-9 | 会话中重启后端（重连） | 重连后字幕恢复；之前的回放缓存仍可用 |
 | P4-10 | 刷新页面（会话进行中） | 重新附着后字幕恢复，缓存为空（预期） |
 
@@ -252,6 +252,29 @@
 | V-6 | 双人播客，开「区分说话人」，看 10 分钟 | 两人始终 A / B；抢话段后原说话人字母不变 |
 | V-7 | 三人以上访谈 | 出现 C / D，但不会有人「变字母」；popup 状态行显示声纹模型 |
 | V-8 | 游戏直播开「降噪」，强度依次 轻 / 中 / 强 | 中、强明显减少音效误识别；强在本机 Intel 识别延迟上升但不掉句 |
+
+## 0.4.0 增补（广告检测）
+
+### 自动化
+| 项 | 覆盖 |
+|---|---|
+| `validate.test.ts` | v8 `session.translate` 合法 / 非法；`transcript.ad` |
+| `pipeline.test.ts`（pause） | 暂停期间 final 带 `ad` 且不进队列、`skipped` 计数；恢复后正常翻译；暂停时在途的 partial 翻译被作废 |
+| `protocol-handler.test.ts` | `session.translate` 暂停 / 恢复生效；暂停缺 `reason` → `invalid_message`；未知会话 → `session_not_found` |
+| `players.test.ts` | YouTube `ad-showing` / `ad-interrupting`；Twitch 播放器内广告元素（播放器外不算） |
+| `session-manager.test.ts` | 仅会话 tab 可改广告状态、去重、持久化 `adPaused`、offscreen 失败只记日志 |
+| `backend-client.test.ts` | `session.ready` 前设置的暂停会在就绪后补发；重连后的新会话重新暂停 |
+| `subtitle-state.test.ts` / `overlay.test.ts` / `settings.test.ts` | `ad` 透传、「广告」标记且无译文行、`skipAdTranslation` 默认开 |
+| `e2e/content-script.spec.ts` | 给 `#movie_player` 加 `ad-showing` → worker 收到 `content.adState`；`ad:true` 的字幕带标记、无译文 |
+
+### 人工
+| # | 步骤 | 预期 |
+|---|---|---|
+| A-1 | YouTube 有前贴广告的视频，开始字幕后刷新 | 广告期间字幕只有原文、带「广告」标记；popup 状态行「广告中，暂停翻译」；广告结束后下一句恢复翻译 |
+| A-2 | 同上，广告结束后拖回 0:00 | 不出现广告句的回放缓存 |
+| A-3 | 广告期间停掉后端再启动（重连） | 重连后广告句仍不翻译；广告结束后恢复 |
+| A-4 | Twitch 频道页等到一次中插广告 | 若字幕带「广告」标记则标记有效；若照常翻译，记录 DevTools 里播放器内的广告元素，补进 `twitch.ts` 的 `AD_SELECTORS` |
+| A-5 | popup 关闭「广告期间只识别不翻译」 | 立即生效：广告语音照常翻译，状态行不再显示「广告中」 |
 
 ## 结果记录
 

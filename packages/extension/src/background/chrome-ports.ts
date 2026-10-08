@@ -125,6 +125,10 @@ export const chromePorts: SessionPorts = {
     const response = await sendToOffscreen<OffscreenStopResponse | undefined>({ target: 'offscreen', type: 'offscreen.stop' });
     return response?.released;
   },
+  async setOffscreenTranslation(enabled, reason) {
+    const response = await sendToOffscreen<{ ok: boolean } | undefined>({ target: 'offscreen', type: 'offscreen.setTranslation', enabled, reason });
+    if (!response?.ok) throw new Error('Offscreen document has no backend session to update.');
+  },
   async notifyContent(tabId, message) {
     await chrome.tabs.sendMessage(tabId, { target: 'content', ...message } satisfies ToContent);
   },

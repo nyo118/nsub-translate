@@ -5,7 +5,7 @@ English | [中文](README.zh-CN.md)
 
 A Chrome extension that shows bilingual live subtitles on YouTube and Twitch videos. Tab audio goes to a local backend, which recognises speech with SenseVoice (Chinese, English, Japanese, Korean, Cantonese) and translates it with a local Hy-MT2 model or an engine of your choice (LM Studio, Gemini, Google). Everything runs on your own machines; no account or API key is required for the default setup.
 
-Optional: noise suppression for streams with music or game audio, and speaker labels (A / B / C) for conversations.
+Optional: noise suppression for streams with music or game audio, and speaker labels (A / B / C) for conversations. Ads are detected on the player: their speech is still recognised but not translated (lines carry an ad tag).
 
 ## Prerequisites
 

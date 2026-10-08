@@ -248,4 +248,27 @@ describe('BackendClient', () => {
     expect(closes).toEqual([]);
     expect(client.isReconnecting).toBe(false);
   });
+
+  it('setTranslation sends session.translate for the open session and restates a pause after a reconnect', async () => {
+    const { client, sockets } = setup({ maxAttempts: 2, delaysMs: [10] });
+    expect(client.setTranslation(false, 'ad')).toBe(false); // no session yet: remembered only
+    const p = client.connect('ws://x', langs, 1000);
+    sockets[0]!.open();
+    sockets[0]!.receive(READY);
+    await p;
+    // The pause set before the session was ready is applied as soon as it is.
+    expect(JSON.parse(sockets[0]!.sent[1]!)).toEqual({ type: 'session.translate', sessionId: 'sid', enabled: false, reason: 'ad' });
+    expect(client.setTranslation(true)).toBe(true);
+    expect(JSON.parse(sockets[0]!.sent[2]!)).toEqual({ type: 'session.translate', sessionId: 'sid', enabled: true });
+    expect(client.setTranslation(false, 'ad')).toBe(true);
+    expect(client.translationPaused).toBe(true);
+    // Backend drops mid-ad; the new session must be paused again.
+    sockets[0]!.readyState = 3;
+    sockets[0]!.onclose?.({ code: 1006, reason: '' });
+    sockets[1]!.open();
+    sockets[1]!.receive({ ...READY, sessionId: 'sid-2' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[1]!.sent.map((m) => JSON.parse(m).type)).toEqual(['session.start', 'session.translate']);
+    expect(JSON.parse(sockets[1]!.sent[1]!)).toMatchObject({ sessionId: 'sid-2', enabled: false, reason: 'ad' });
+  });
 });

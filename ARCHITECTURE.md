@@ -88,6 +88,29 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
 - **翻译**：`TranslationPipeline` 透传 `speaker/overlap`；`[多人同时说话]` 占位段不进翻译队列。
 - **模型组**：`models.lock.json` 新增 `enhance`（gtcrn_simple.onnx + dpdfnet2/4/8.onnx）与 `diarization`（pyannote model.int8.onnx + 3dspeaker campplus zh_en advanced）；`SherpaAsrAdapter.start` 先经 `ModelManager.ensure(group)` 按需下载再启动。
 
+## 广告处理（0.4.0，协议 v8）
+
+```
+Content: ticker 每 250 ms → adapter.isAdPlaying(document)
+           YouTube: #movie_player.ad-showing / .ad-interrupting
+           Twitch : 播放器内 [data-a-target="video-ad-label" | "video-ad-countdown" | "player-ad-overlay"] 等（AD_SELECTORS，未实测）
+         变化时 → runtime.sendMessage content.adState{inAd}
+SW:      SessionManager.onAdState(tabId, inAd)：只接受会话 tab；去重；写 state.adPaused（popup 显示「广告中，暂停翻译」）
+           → ports.setOffscreenTranslation(!inAd, 'ad') → offscreen.setTranslation
+Offscreen: BackendClient.setTranslation(enabled, reason) 记住期望状态并发 session.translate；
+           每次 session.ready（含重连）后若仍暂停则补发
+Backend: ConnectionHandler → Session.setTranslation → TranslationPipeline.setPaused(true, 'ad')
+           暂停期间：transcript 照常转发并带 ad:true；final 计入 skipped、不进 finalQueue；
+           该段在途的 partial 翻译 abort；已排队的早先句子照常完成
+Content: transcript.ad → 字幕行加「广告」标记、无译文行；final 不写入回放缓存
+```
+
+- **为什么在扩展侧检测**：后端只有音频，广告与否只有页面知道；检测是一次 classList / querySelector，放在已有的 250 ms ticker 里。
+- **为什么不干脆不显示**：用户要求「识别但不翻译」——原文仍有信息量，且省下的是翻译引擎的配额 / CPU；想完全不看可以在样式里关「显示原文」。
+- **边界**：ASR 收句滞后 0.5–1.5 s，广告起止前后各约一句可能被误判；接受。
+- **设置**：`skipAdTranslation`（默认开）由 content script 订阅，关闭时立即上报 `inAd:false`。
+- **覆盖率**：`translationCoverage = translated / (finals − skipped)`，否则一段广告会触发 popup 的「本机翻译跟不上」提示。
+
 ## 发布与可复现性（Phase 7）
 
 - **版本**：`scripts/set-version.mjs` 同步 root / 各包 / `manifest.json`；扩展与后端同版本发布，协议版本不兼容时握手即报错。
@@ -147,6 +170,7 @@ Hy-MT2 adapter：官方提示词 + 前 2 句上下文 → node-llama-cpp（异�
 ```
 
 - **引擎选择**：`TranslationRegistry` 注册 `hy-mt2 / gemini / llm / google / none / mock`（`gemini` 与 `llm` 共用 `openai-compatible-adapter.ts`：system prompt + 前 2 句作为对话历史，429/5xx 重试一次；`hy-mt2` 使用 `preferredContextSize = 0` 以缩短 prefill），默认引擎（`TRANSLATION_PROVIDER`）启动时预加载，其余在首次被会话选用时才 `prepare()`（1 GB 模型只在需要时加载；准备失败不缓存，下次重试）。客户端通过 `session.start.options.translationProvider` 选择；未知或不可用 → `translation_unavailable`。
+- **协议 v8**（0.4.0）：客户端 `session.translate{sessionId, enabled, reason:'ad'}`（暂停必须带 reason）；`transcript.ad`。
 - **协议 v7**（0.3.0）：`session.start.options.denoiser('gtcrn'|'dpdfnet2'|'dpdfnet4'|'dpdfnet8')`；`session.ready.asr.denoiser / speakerModel`。
 - **协议 v6**（0.2.0）：`session.start.options.denoise / diarize / overlap('mark'|'skip'|'recognize')`；`session.ready.asr.denoise / diarize`（实际生效状态）；`transcript.speaker`（"A"…）与 `transcript.overlap`。
 - **协议 v5**：`session.metrics` 增加 p95 与翻译覆盖率。

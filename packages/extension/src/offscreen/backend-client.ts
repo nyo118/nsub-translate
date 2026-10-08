@@ -7,6 +7,7 @@ import {
   type ClientMessage,
   type ServerMessage,
   type SessionOptions,
+  type TranslatePauseReason,
   type TranslationInfo,
 } from '@lst/protocol';
 
@@ -77,6 +78,9 @@ export class BackendClient {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastInboundAt = 0;
   private _heartbeatTimeouts = 0;
+  /** Desired translation state; re-sent to every new backend session (a reconnect starts one that is enabled). */
+  private translationEnabled = true;
+  private pauseReason: TranslatePauseReason = 'ad';
 
   constructor(
     events: BackendClientEvents,
@@ -137,6 +141,28 @@ export class BackendClient {
     this.heartbeatTimer = null;
   }
 
+  get translationPaused(): boolean {
+    return !this.translationEnabled;
+  }
+
+  /**
+   * Pause / resume translation on the backend session. Returns whether the
+   * message went out now; the state is remembered either way and applied to
+   * the next session that becomes ready.
+   */
+  setTranslation(enabled: boolean, reason: TranslatePauseReason = 'ad'): boolean {
+    this.translationEnabled = enabled;
+    this.pauseReason = reason;
+    return this.sendTranslationState();
+  }
+
+  private sendTranslationState(): boolean {
+    if (this._sessionId === null) return false;
+    const message: ClientMessage = { type: 'session.translate', sessionId: this._sessionId, enabled: this.translationEnabled };
+    if (!this.translationEnabled) message.reason = this.pauseReason;
+    return this.send(message);
+  }
+
   get state(): string {
     if (this.socket === null) return 'none';
     return ['connecting', 'open', 'closing', 'closed'][this.socket.readyState] ?? String(this.socket.readyState);
@@ -191,6 +217,8 @@ export class BackendClient {
             this._asr = message.asr;
             this._translation = message.translation;
             this.startHeartbeat(socket);
+            // A fresh session starts with translation enabled; restate a pause (e.g. after a reconnect mid-ad).
+            if (!this.translationEnabled) this.sendTranslationState();
             resolve(message.sessionId);
           } else if (message.type === 'session.error') {
             settled = true;

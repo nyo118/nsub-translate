@@ -1,4 +1,4 @@
-import { OVERLAP_PLACEHOLDER, type TranscriptMessage } from '@lst/protocol';
+import { OVERLAP_PLACEHOLDER, type TranscriptMessage, type TranslatePauseReason } from '@lst/protocol';
 import type { AsrTranscript } from '../asr/types.js';
 import type { TranslationAdapter, TranslationContextItem } from './types.js';
 
@@ -40,6 +40,8 @@ interface SegmentState {
   language?: string;
   speaker?: string;
   overlap?: boolean;
+  /** Recognised while translation was paused for an ad: forwarded, never translated. */
+  ad?: boolean;
   lastPartialTranslateAt: number;
   translatedText?: string;
 }
@@ -73,6 +75,9 @@ export class TranslationPipeline {
   private avgTranslateMs = 0;
   private stopped = false;
   private failed = false;
+  /** Set while the client has paused translation (`session.translate`), with the reason given. */
+  private pausedFor: TranslatePauseReason | null = null;
+  private _skipped = 0;
 
   constructor(options: TranslationPipelineOptions) {
     this.o = {
@@ -98,6 +103,24 @@ export class TranslationPipeline {
     return this._translated;
   }
 
+  /** Finals deliberately left untranslated while paused (ads); excluded from coverage. */
+  get skipped(): number {
+    return this._skipped;
+  }
+
+  get paused(): boolean {
+    return this.pausedFor !== null;
+  }
+
+  /**
+   * Pause / resume translation. While paused, transcripts are still
+   * forwarded (source only) and finals are counted as skipped; work already
+   * queued or in flight for earlier speech is left to finish.
+   */
+  setPaused(paused: boolean, reason: TranslatePauseReason = 'ad'): void {
+    this.pausedFor = paused ? reason : null;
+  }
+
   /** ASR transcript in → forwarded immediately; translation scheduled. */
   onTranscript(t: AsrTranscript): void {
     if (this.stopped) return;
@@ -119,9 +142,20 @@ export class TranslationPipeline {
     if (t.language !== undefined) seg.language = t.language;
     if (t.speaker !== undefined) seg.speaker = t.speaker;
     if (t.overlap !== undefined) seg.overlap = t.overlap;
+    if (this.pausedFor === 'ad') {
+      // Speech during an ad: keep the source text on screen, never translate it (and never let a
+      // pending partial translation of this segment land later).
+      seg.ad = true;
+      if (this.pendingPartial?.segmentId === t.segmentId) this.pendingPartial = null;
+      if (this.inFlight?.job.segmentId === t.segmentId) this.inFlight.abort.abort();
+    }
     this.emit(t.segmentId, seg);
 
     if (this.failed) return;
+    if (seg.ad) {
+      if (t.status === 'final') this._skipped += 1;
+      return;
+    }
     // An overlap placeholder is a notice, not speech: nothing to translate.
     if (t.overlap && t.text === OVERLAP_PLACEHOLDER) return;
     if (t.status === 'final') {
@@ -248,6 +282,7 @@ export class TranslationPipeline {
     if (seg.language !== undefined) message.language = seg.language;
     if (seg.speaker !== undefined) message.speaker = seg.speaker;
     if (seg.overlap !== undefined) message.overlap = seg.overlap;
+    if (seg.ad !== undefined) message.ad = seg.ad;
     this.o.emit(message);
   }
 

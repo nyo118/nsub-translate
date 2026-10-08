@@ -179,6 +179,19 @@ export class ConnectionHandler {
         this.send({ type: 'session.pong', sessionId: message.sessionId });
         return;
       }
+      case 'session.translate': {
+        if (!this.session || this.session.sessionId !== message.sessionId) {
+          this.error('session_not_found', 'no active session with that sessionId');
+          return;
+        }
+        if (!message.enabled && message.reason === undefined) {
+          this.error('invalid_message', 'session.translate: reason is required when pausing');
+          return;
+        }
+        this.session.setTranslation(message.enabled, message.reason);
+        this.log.info({ sessionId: message.sessionId, enabled: message.enabled, ...(message.reason === undefined ? {} : { reason: message.reason }) }, message.enabled ? 'translation resumed' : 'translation paused');
+        return;
+      }
       case 'session.stop': {
         if (!this.session || this.session.sessionId !== message.sessionId) {
           this.error('session_not_found', 'no active session with that sessionId');

@@ -24,6 +24,8 @@ export interface SessionSummary {
   partials: number;
   finals: number;
   translated: number;
+  /** Finals left untranslated on purpose (recognised during ads). */
+  translationSkipped: number;
   translationCoverage: number;
   asrDecodeP50Ms: number;
   asrLatencyP50Ms: number;

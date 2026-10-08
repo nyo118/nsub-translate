@@ -90,6 +90,8 @@ export interface Settings {
   translationEngine: TranslationEngine;
   /** Also translate in-progress sentences (more CPU). Applies on next start. */
   translatePartials: boolean;
+  /** While the player shows an ad, keep recognising but do not translate. Applies immediately. */
+  skipAdTranslation: boolean;
   /** Auto-stop after this many hours (0 = never). Applies on next start. */
   sessionLimitHours: number;
   /** Multi-voice handling (0.2.0), all off by default; applies on next start. */
@@ -195,6 +197,7 @@ export const DEFAULT_SETTINGS: Settings = {
   targetLanguage: 'zh-CN',
   translationEngine: 'hy-mt2',
   translatePartials: false,
+  skipAdTranslation: true,
   sessionLimitHours: 3,
   denoise: false,
   denoiseStrength: 'auto',
@@ -227,6 +230,7 @@ export function normalizeSettings(raw: unknown): Settings {
     targetLanguage: language(r['targetLanguage'], TARGET_LANGUAGES, DEFAULT_SETTINGS.targetLanguage),
     translationEngine: TRANSLATION_ENGINES.some((e) => e.code === r['translationEngine']) ? (r['translationEngine'] as TranslationEngine) : DEFAULT_SETTINGS.translationEngine,
     translatePartials: bool(r['translatePartials'], DEFAULT_SETTINGS.translatePartials),
+    skipAdTranslation: bool(r['skipAdTranslation'], DEFAULT_SETTINGS.skipAdTranslation),
     sessionLimitHours: SESSION_LIMIT_CHOICES.some((c) => c.hours === r['sessionLimitHours']) ? (r['sessionLimitHours'] as number) : DEFAULT_SETTINGS.sessionLimitHours,
     denoise: bool(r['denoise'], DEFAULT_SETTINGS.denoise),
     denoiseStrength: DENOISE_STRENGTHS.some((s) => s.code === r['denoiseStrength']) ? (r['denoiseStrength'] as DenoiseStrength) : DEFAULT_SETTINGS.denoiseStrength,

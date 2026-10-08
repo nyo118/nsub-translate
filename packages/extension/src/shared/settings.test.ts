@@ -122,3 +122,11 @@ describe('multi-voice settings (0.2.0)', () => {
     expect(isLocalBackend('garbage')).toBe(true);
   });
 });
+
+describe('skipAdTranslation', () => {
+  it('defaults to on and normalises non-booleans', () => {
+    expect(DEFAULT_SETTINGS.skipAdTranslation).toBe(true);
+    expect(normalizeSettings({ skipAdTranslation: false }).skipAdTranslation).toBe(false);
+    expect(normalizeSettings({ skipAdTranslation: 'off' }).skipAdTranslation).toBe(true);
+  });
+});

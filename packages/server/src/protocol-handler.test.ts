@@ -189,4 +189,29 @@ describe('ConnectionHandler', () => {
     expect(sent).toEqual([{ type: 'session.error', code: 'asr_unavailable', message: 'boom' }]);
     expect(handler.activeSessionId).toBeNull();
   });
+
+  it('session.translate pauses and resumes translation; pausing needs a reason; unknown session is rejected', async () => {
+    const { sent, handler } = make();
+    handler.handleFrame(START);
+    await settle();
+    handler.handleFrame(JSON.stringify({ type: 'session.translate', sessionId: 'sid-1', enabled: false, reason: 'ad' }));
+    await vi.advanceTimersByTimeAsync(50 * 3 + 20);
+    const during = sent.filter((m) => m.type === 'transcript');
+    expect(during.length).toBeGreaterThan(0);
+    expect(during.every((m) => m.type === 'transcript' && m.ad === true && m.translatedText === undefined)).toBe(true);
+
+    handler.handleFrame(JSON.stringify({ type: 'session.translate', sessionId: 'sid-1', enabled: true }));
+    const before = sent.length;
+    await vi.advanceTimersByTimeAsync(50 * 3 + 20);
+    const after = sent.slice(before).filter((m) => m.type === 'transcript');
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((m) => m.type === 'transcript' && m.ad === undefined)).toBe(true);
+    expect(after.some((m) => m.type === 'transcript' && m.translatedText !== undefined)).toBe(true);
+
+    handler.handleFrame(JSON.stringify({ type: 'session.translate', sessionId: 'sid-1', enabled: false }));
+    expect(sent.at(-1)).toMatchObject({ type: 'session.error', code: 'invalid_message' });
+    handler.handleFrame(JSON.stringify({ type: 'session.translate', sessionId: 'nope', enabled: false, reason: 'ad' }));
+    expect(sent.at(-1)).toMatchObject({ type: 'session.error', code: 'session_not_found' });
+    await handler.dispose('done');
+  });
 });

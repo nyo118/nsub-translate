@@ -48,6 +48,9 @@ const STYLES = `
   /* Speaker labels (diarization): a coloured letter before the text, one colour per speaker. */
   .lst-speaker { font-weight: 700; margin-right: 0.35em; color: var(--lst-speaker-color, #ffd166); }
   .lst-overlap .lst-source, .lst-overlap .lst-translated { opacity: 0.6; font-style: italic; font-weight: 400; }
+  /* Ad lines: source only, dimmed, with a small tag so the viewer knows why there is no translation. */
+  .lst-ad .lst-source { opacity: 0.75; }
+  .lst-ad-tag { font-size: 0.6em; padding: 0 4px; margin-right: 0.4em; border: 1px solid #ffb870; border-radius: 3px; color: #ffb870; vertical-align: middle; letter-spacing: 0.05em; }
 `;
 
 /** One colour per speaker label, in label order (A, B, C, …); chosen to stay readable on a dark box. */
@@ -181,10 +184,18 @@ export class SubtitleOverlay {
       const showTranslated = this.style.showTranslated && line.translatedText !== undefined;
       if (!showSource && !showTranslated) return;
       const el = this.doc.createElement('div');
-      el.className = `lst-line ${line.status === 'partial' ? 'lst-partial' : 'lst-final'}${index === lines.length - 1 ? ' lst-current' : ''}${line.overlap ? ' lst-overlap' : ''}`;
-      // The speaker letter goes on the first visible row only.
+      el.className = `lst-line ${line.status === 'partial' ? 'lst-partial' : 'lst-final'}${index === lines.length - 1 ? ' lst-current' : ''}${line.overlap ? ' lst-overlap' : ''}${line.ad ? ' lst-ad' : ''}`;
+      // The ad tag and the speaker letter go on the first visible row only.
+      let adPending = line.ad === true;
       let speakerPending = line.speaker;
       const withSpeaker = (row: HTMLElement, text: string) => {
+        if (adPending) {
+          const tag = this.doc.createElement('span');
+          tag.className = 'lst-ad-tag';
+          tag.textContent = '广告';
+          row.appendChild(tag);
+          adPending = false;
+        }
         if (speakerPending !== undefined) {
           const tag = this.doc.createElement('span');
           tag.className = 'lst-speaker';

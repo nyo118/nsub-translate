@@ -4,6 +4,7 @@ import {
   DENOISER_NAMES,
   OVERLAP_MODES,
   PROTOCOL_VERSION,
+  TRANSLATE_PAUSE_REASONS,
   type AsrInfo,
   type AudioFormat,
   type ClientMessage,
@@ -13,6 +14,7 @@ import {
   type OverlapMode,
   type SessionOptions,
   type TranscriptMessage,
+  type TranslatePauseReason,
   type TranslationInfo,
 } from './index.js';
 
@@ -86,6 +88,16 @@ export function validateClientMessage(value: unknown): ParseResult<ClientMessage
     case 'session.ping': {
       if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
       return { ok: true, message: { type: value['type'], sessionId: value['sessionId'] } };
+    }
+    case 'session.translate': {
+      if (!isNonEmptyString(value['sessionId'])) return { ok: false, error: 'sessionId is required' };
+      if (typeof value['enabled'] !== 'boolean') return { ok: false, error: 'enabled must be a boolean' };
+      const message: ClientMessage = { type: 'session.translate', sessionId: value['sessionId'], enabled: value['enabled'] };
+      if (value['reason'] !== undefined) {
+        if (!TRANSLATE_PAUSE_REASONS.includes(value['reason'] as TranslatePauseReason)) return { ok: false, error: `reason must be one of ${TRANSLATE_PAUSE_REASONS.join('|')}` };
+        message.reason = value['reason'] as TranslatePauseReason;
+      }
+      return { ok: true, message };
     }
     default:
       return { ok: false, error: 'unknown client message type' };
@@ -206,6 +218,7 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
   if (value['language'] !== undefined && !isNonEmptyString(value['language'])) return { ok: false, error: 'language must be a non-empty string' };
   if (value['speaker'] !== undefined && !isNonEmptyString(value['speaker'])) return { ok: false, error: 'speaker must be a non-empty string' };
   if (value['overlap'] !== undefined && typeof value['overlap'] !== 'boolean') return { ok: false, error: 'overlap must be a boolean' };
+  if (value['ad'] !== undefined && typeof value['ad'] !== 'boolean') return { ok: false, error: 'ad must be a boolean' };
   const message: TranscriptMessage = {
     type: 'transcript',
     sessionId: value['sessionId'],
@@ -220,6 +233,7 @@ export function validateTranscript(value: UnknownRecord): ParseResult<Transcript
   if (value['language'] !== undefined) message.language = value['language'];
   if (value['speaker'] !== undefined) message.speaker = value['speaker'];
   if (value['overlap'] !== undefined) message.overlap = value['overlap'];
+  if (value['ad'] !== undefined) message.ad = value['ad'];
   return { ok: true, message };
 }
 

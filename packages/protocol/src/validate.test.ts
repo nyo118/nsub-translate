@@ -134,3 +134,19 @@ describe('validateAudioFrame', () => {
     expect(r.ok && r.message.length).toBe(2);
   });
 });
+
+describe('v8 session.translate / transcript.ad', () => {
+  it('accepts pause (with reason) and resume, rejects bad shapes', () => {
+    expect(validateClientMessage({ type: 'session.translate', sessionId: 's', enabled: false, reason: 'ad' })).toEqual({ ok: true, message: { type: 'session.translate', sessionId: 's', enabled: false, reason: 'ad' } });
+    expect(validateClientMessage({ type: 'session.translate', sessionId: 's', enabled: true })).toEqual({ ok: true, message: { type: 'session.translate', sessionId: 's', enabled: true } });
+    expect(validateClientMessage({ type: 'session.translate', sessionId: '', enabled: true }).ok).toBe(false);
+    expect(validateClientMessage({ type: 'session.translate', sessionId: 's', enabled: 'no' }).ok).toBe(false);
+    expect(validateClientMessage({ type: 'session.translate', sessionId: 's', enabled: false, reason: 'lunch' }).ok).toBe(false);
+  });
+  it('passes transcript.ad through and rejects a non-boolean', () => {
+    const base = { type: 'transcript', sessionId: 's', segmentId: 'a', revision: 0, status: 'final', startMs: 0, sourceText: 'buy now' };
+    const r = validateServerMessage({ ...base, ad: true });
+    expect(r.ok && r.message.type === 'transcript' && r.message.ad).toBe(true);
+    expect(validateServerMessage({ ...base, ad: 'yes' }).ok).toBe(false);
+  });
+});

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 — 2026-10-08
+
+### 新增
+- **广告检测**：content script 每 250 ms 看一次播放器的广告状态（YouTube：`#movie_player` 的 `ad-showing` / `ad-interrupting` 类；Twitch：播放器内的 `video-ad-label` / `video-ad-countdown` 等广告元素），变化时经 Service Worker → Offscreen 向后端发 `session.translate`。广告期间**照常识别、不翻译**：字幕只显示原文并带「广告」标记，不进翻译队列，也不写入回放缓存（广告的视频时间与正片开头重叠）。popup 新增「广告期间只识别不翻译」开关（默认开，立即生效），状态行显示「广告中，暂停翻译」。
+- 重连后新会话默认开启翻译；`BackendClient` 记住暂停状态并在 `session.ready` 后重新发送。
+- `session.metrics.translationCoverage` 不再把广告句算进分母；会话摘要新增 `translationSkipped`。
+
+### 变更
+- 协议 v8：客户端消息 `session.translate{sessionId, enabled, reason:'ad'}`；`transcript.ad`。扩展与后端需同为 0.4.x。
+
+### 已知限制
+- Twitch 的广告 DOM 标记未在真实直播上验证（见 `COMPATIBILITY.md`）；标记不命中时行为与 0.3.0 相同（广告语音照常翻译）。
+- 广告末尾最后一句若在广告结束后才收句，会按正常内容翻译；反之广告开始前的最后一句若在广告开始后才收句，会被标为广告不翻译（边界误差约一句）。
+
 ## 0.3.0 — 2026-09-28
 
 ### 修复 / 改进（多声源）

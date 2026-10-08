@@ -218,4 +218,50 @@ describe('TranslationPipeline', () => {
     pipeline.onTranscript(t('b', 0, 'final', 'B.'));
     expect(out).toHaveLength(1);
   });
+
+  describe('pause (ads)', () => {
+    it('while paused, forwards finals tagged ad without translating them and counts them as skipped', async () => {
+      const { adapter, out, pipeline } = make();
+      pipeline.setPaused(true, 'ad');
+      pipeline.onTranscript(t('ad1', 0, 'partial', 'Buy now'));
+      pipeline.onTranscript(t('ad1', 1, 'final', 'Buy now and save.'));
+      expect(out.map((m) => [m.segmentId, m.status, m.ad, m.translatedText])).toEqual([
+        ['ad1', 'partial', true, undefined],
+        ['ad1', 'final', true, undefined],
+      ]);
+      expect(adapter.calls).toHaveLength(0);
+      expect(pipeline.skipped).toBe(1);
+      expect(pipeline.translated).toBe(0);
+      expect(pipeline.paused).toBe(true);
+    });
+
+    it('resumes: later segments are translated and untagged, earlier ad segments stay untranslated', async () => {
+      const { adapter, out, pipeline } = make();
+      pipeline.setPaused(true);
+      pipeline.onTranscript(t('ad1', 0, 'final', 'Sponsored message.'));
+      pipeline.setPaused(false);
+      pipeline.onTranscript(t('c1', 0, 'final', 'Back to the show.'));
+      expect(adapter.calls).toHaveLength(1);
+      expect(adapter.calls[0]!.req.text).toBe('Back to the show.');
+      adapter.calls[0]!.resolve('回到节目。');
+      await flush();
+      const last = out.at(-1)!;
+      expect(last).toMatchObject({ segmentId: 'c1', translatedText: '回到节目。' });
+      expect(last.ad).toBeUndefined();
+      expect(out.filter((m) => m.segmentId === 'ad1').every((m) => m.ad === true && m.translatedText === undefined)).toBe(true);
+    });
+
+    it('a segment whose partial translation is in flight when the ad starts never receives that translation', async () => {
+      const { adapter, out, pipeline } = make({ translatePartials: true, partialMinChars: 1 });
+      pipeline.onTranscript(t('x', 0, 'partial', 'This product is'));
+      expect(adapter.calls).toHaveLength(1);
+      pipeline.setPaused(true);
+      pipeline.onTranscript(t('x', 1, 'final', 'This product is amazing.'));
+      expect(adapter.calls[0]!.req.signal?.aborted).toBe(true);
+      await flush();
+      expect(out.filter((m) => m.segmentId === 'x').every((m) => m.translatedText === undefined)).toBe(true);
+      expect(out.at(-1)).toMatchObject({ segmentId: 'x', status: 'final', ad: true });
+      expect(adapter.calls).toHaveLength(1);
+    });
+  });
 });

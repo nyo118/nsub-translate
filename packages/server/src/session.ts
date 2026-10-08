@@ -1,4 +1,4 @@
-import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslationInfo } from '@lst/protocol';
+import type { AsrInfo, DenoiserName, OverlapMode, SessionMetricsMessage, TranscriptMessage, TranslatePauseReason, TranslationInfo } from '@lst/protocol';
 import type { AsrAdapter } from './asr/types.js';
 import type { TranslationAdapter } from './translation/types.js';
 import { TranslationPipeline } from './translation/pipeline.js';
@@ -148,6 +148,16 @@ export class Session {
     this.adapter.pushAudio(pcm);
   }
 
+  /** v8: the client pauses translation (e.g. while the player shows an ad) or resumes it. Recognition is unaffected. */
+  setTranslation(enabled: boolean, reason: TranslatePauseReason = 'ad'): void {
+    if (this._state !== 'running') return;
+    this.pipeline.setPaused(!enabled, reason);
+  }
+
+  get translationPaused(): boolean {
+    return this.pipeline.paused;
+  }
+
   metrics(): SessionMetricsMessage {
     const WINDOW = 50;
     return {
@@ -163,8 +173,15 @@ export class Session {
       translationBacklog: this.pipeline.backlog,
       asrLatencyP95Ms: this.latencySeries.recentP(95, 200),
       translateP95Ms: this.translateSeries.recentP(95, 100),
-      translationCoverage: this.finals === 0 ? 0 : Math.min(1, Math.round((this.pipeline.translated / this.finals) * 100) / 100),
+      translationCoverage: this.coverage(),
     };
+  }
+
+  /** translated / finals, not counting finals that were deliberately skipped (ads). */
+  private coverage(): number {
+    const eligible = this.finals - this.pipeline.skipped;
+    if (eligible <= 0) return 0;
+    return Math.min(1, Math.round((this.pipeline.translated / eligible) * 100) / 100);
   }
 
   /** Text-free summary for the session log. */
@@ -189,6 +206,7 @@ export class Session {
       partials: m.partials,
       finals: m.finals,
       translated: m.translated,
+      translationSkipped: this.pipeline.skipped,
       translationCoverage: m.translationCoverage,
       asrDecodeP50Ms: this.decodeSeries.p(50),
       asrLatencyP50Ms: this.latencySeries.p(50),
