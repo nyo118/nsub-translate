@@ -5,6 +5,9 @@
 //   length), ms per audio second, and suggested SpeakerRegistry thresholds. `--sim` additionally runs the conversation simulation
 //   (random multi-speaker dialogues incl. A→B→A+C overlaps) through the SpeakerRegistry from packages/server/dist.
 //   node scripts/speaker-calib.mjs [--models a.onnx,b.onnx] [--sim] [--json out.json]
+//   Default: only the shipped CAM++ zh/en model. The other three candidates compared for 0.3.0 (wespeaker_en_voxceleb_resnet34_LM,
+//   3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k, nemo_en_titanet_large) are no longer kept locally; to rerun the comparison,
+//   download them from the sherpa-onnx "speaker-recongition-models" release into packages/server/models and pass them via --models.
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -15,7 +18,7 @@ const sherpa = createRequire(import.meta.url)(path.join(root, 'node_modules/sher
 const modelsDir = process.env.MODELS_DIR ? path.resolve(process.env.MODELS_DIR) : path.join(root, 'packages/server/models');
 const calibDir = path.join(modelsDir, 'calib');
 const args = Object.fromEntries(process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] === undefined ? true : all[i + 1]] : [])).filter((x) => x.length));
-const models = String(args.models ?? 'wespeaker_en_voxceleb_resnet34_LM.onnx,3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx,3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx,nemo_en_titanet_large.onnx').split(',');
+const models = String(args.models ?? '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx').split(',');
 const RATE = 16000;
 
 // ---------------------------------------------------------------- data
