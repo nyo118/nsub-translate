@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Personal-use Chrome extension that overlays bilingual live subtitles on YouTube/Twitch videos (Phase 0: technical validation).",
+  "description": "N Sub (beta): Chrome extension that overlays bilingual live subtitles on YouTube/Twitch videos, with a local recognition + translation backend.",
   "engines": {
     "node": ">=22.12.0"
   },

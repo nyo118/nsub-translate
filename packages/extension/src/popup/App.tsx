@@ -303,7 +303,7 @@ export function App() {
         <img className="logo" src="icons/icon48.png" alt="" />
         <div className="title">
           <h1>N Sub</h1>
-          <p>即时双语字幕</p>
+          <p>即时双语字幕 · Beta</p>
         </div>
         <span className={`status ${status.kind}`} aria-live="polite">
           <span className="dot" /> {status.label}

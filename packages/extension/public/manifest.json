@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Live Subtitle Translator (Phase 0)",
+  "name": "N Sub — Live Subtitle Translator (Beta)",
   "version": "0.4.0",
-  "description": "Personal-use bilingual live subtitles for YouTube and Twitch. Phase 0: technical validation with a mock backend.",
+  "description": "Beta. Bilingual live subtitles for YouTube and Twitch, recognised and translated by a local backend on your own machine.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -25,7 +25,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Live Subtitle Translator",
+    "default_title": "N Sub (Beta)",
     "default_popup": "popup.html"
   },
   "content_scripts": [

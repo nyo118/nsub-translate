@@ -1,5 +1,10 @@
 # Changelog
 
+## 未发布
+
+### 变更
+- 项目标为 **Beta**：README 顶部加状态徽章与说明；扩展名称改为「N Sub — Live Subtitle Translator (Beta)」（原「Live Subtitle Translator (Phase 0)」），popup 标题行加 Beta 字样；`package.json` 与 manifest 的描述去掉过时的「Phase 0 / mock backend」措辞。GitHub 仓库描述同步标注，已有 Release 全部改为 pre-release。
+
 ## 0.4.0 — 2026-10-08
 
 ### 新增

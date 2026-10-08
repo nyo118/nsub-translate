@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Chrome MV3 extension for Live Subtitle Translator.",
+  "description": "Chrome MV3 extension for N Sub (beta).",
   "scripts": {
     "build": "vite build && vite build --config vite.content.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

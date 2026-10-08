@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Local backend for Live Subtitle Translator (Phase 0: mock subtitle session over WebSocket).",
+  "description": "Local backend for N Sub (beta): speech recognition, translation and diarization over WebSocket.",
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

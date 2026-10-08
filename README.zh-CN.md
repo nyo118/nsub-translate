@@ -1,7 +1,11 @@
 <img src="packages/extension/public/icons/icon48.png" width="70" align="left" alt="">
 # N Sub — 即时双语字幕
 
+![状态：beta](https://img.shields.io/badge/status-beta-orange) ![版本](https://img.shields.io/github/v/release/nyo118/nsub-translate?include_prereleases&label=release)
+
 [English](README.md) | 中文
+
+> **Beta 版。** 主流程已在 macOS 上日常使用，但仍有未打磨之处：Twitch 广告检测未在真实直播验证，Windows、Linux 未测试，扩展与后端的协议在小版本之间可能变动（两端必须一起升级）。遇到问题请到 [Issues](https://github.com/nyo118/nsub-translate/issues) 反馈。
 
 一个 Chrome 扩展，在 YouTube 和 Twitch 视频上叠加双语实时字幕。标签页音频送到本机后端，由 SenseVoice 识别（中、英、日、韩、粤），再由本机 Hy-MT2 模型或你选的引擎（LM Studio、Gemini、Google）翻译。全部在自己的机器上运行，默认配置不需要账号或API key。
 

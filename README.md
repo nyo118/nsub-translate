@@ -1,7 +1,11 @@
 <img src="packages/extension/public/icons/icon48.png" width="70" align="left" alt="">
 # N Sub — Live Subtitle Translator
 
+![Status: beta](https://img.shields.io/badge/status-beta-orange) ![Version](https://img.shields.io/github/v/release/nyo118/nsub-translate?include_prereleases&label=release)
+
 English | [中文](README.zh-CN.md)
+
+> **Beta.** The core flow is in daily use on macOS, but expect rough edges: Twitch ad detection is unverified on real streams, Windows and Linux are untested, and the extension/backend protocol may change between minor versions (both sides must be upgraded together). Please report problems in [Issues](https://github.com/nyo118/nsub-translate/issues).
 
 A Chrome extension that shows bilingual live subtitles on YouTube and Twitch videos. Tab audio goes to a local backend, which recognises speech with SenseVoice (Chinese, English, Japanese, Korean, Cantonese) and translates it with a local Hy-MT2 model or an engine of your choice (LM Studio, Gemini, Google). Everything runs on your own machines; no account or API key is required for the default setup.
 
