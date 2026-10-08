@@ -1,4 +1,4 @@
-# 架构说明（Phase 0）
+# 架构说明
 
 ## 组成
 
@@ -57,7 +57,7 @@ Offscreen: MediaStream(48 kHz) ─▶ AudioWorklet pcm-worklet.js（混单声道
                                                                                         │  ├─ 段 ≥5 s：在最近 1.5 s 找最安静 100 ms 窗软切分 → final + 新段接着
                                                                                         │  └─ VAD 收尾（停顿 ≥0.3 s）/ 超 8 s：解码本段剩余音频 → final
                                                                                         ▼
-                                                                    transcript / metrics ──▶ Session ──▶ 扩展（沿 Phase 0 路径到字幕层）
+                                                                    transcript / metrics ──▶ Session ──▶ 扩展（沿原有路径到字幕层）
 ```
 
 - **协议 v2**：`session.start` 带 `audio:{pcm_s16le,16000,1}`；音频走二进制帧，控制消息走文本帧；`session.ready.asr{provider,language}`；新增 `session.metrics{audioSeconds,partials,finals,avgDecodeMs,avgLatencyMs}`；错误码新增 `invalid_audio / unsupported_audio_format / asr_unavailable / asr_failed`。
@@ -239,7 +239,7 @@ SW 在 start() 时调用 loadLanguages() 读取一次语言 → 写入 session �
 
 ## 协议 v1
 
-见 `packages/protocol/src/index.ts`。相对规格示例的**小增补**（Phase 0 需要，已版本化在 v1 内）：
+见 `packages/protocol/src/index.ts`。相对规格示例的**小增补**（v1 起即有）：
 - `session.pong`（对 `session.ping` 的应答）
 - `session.stopped`（对 `session.stop` 的确认，让扩展能等到后端确认再关 socket）
 - `session.error.code` 为 `string`，已知取值见 `SessionErrorCode`

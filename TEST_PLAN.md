@@ -1,4 +1,4 @@
-# 测试计划（Phase 0）
+# 测试计划
 
 ## 自动化
 
@@ -16,7 +16,7 @@
 
 **Playwright 无法覆盖**：真实 tab 音频捕获（需要用户在该 tab 上点击扩展）、可听性、YouTube 真实 DOM。这些只能人工验证。
 
-## 人工验证（对应规格 Phase 0 Manual 1–14）
+## 人工验证（基础流程 1–14）
 
 前置：`npm run dev:server` 运行中；`npm run build` 完成；扩展已在 `chrome://extensions` 加载；DevTools 可用。
 
